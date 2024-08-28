@@ -29,7 +29,7 @@ async fn register_node(
         id: req.id.clone(),
         address: req.address.clone(),
         public_key: req.public_key.clone(),
-        validated: false,
+        validated: Some(false), // Corrected line
     };
 
     node_list.add_node(node);

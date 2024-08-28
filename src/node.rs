@@ -12,7 +12,7 @@ pub struct Node {
     pub id: String,
     pub address: String,
     pub public_key: String,
-    pub validated: bool,
+    pub validated: Option<bool>,
 }
 
 #[derive(Clone)]
@@ -37,7 +37,7 @@ impl NodeList {
 
     pub fn update_validation(&self, node_id: &str, validated: bool) {
         if let Some(node) = self.nodes.lock().unwrap().get_mut(node_id) {
-            node.validated = validated;
+            node.validated = Some(validated); // Wrap the boolean value in `Some`
         }
     }
 }
@@ -66,7 +66,7 @@ impl Node {
             id,
             address: address.to_string(),
             public_key: public_key_pem, // No need for into_inner(), already a String
-            validated: false,
+            validated: Some(false),
         }
     }
 

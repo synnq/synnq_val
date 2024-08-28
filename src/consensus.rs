@@ -19,6 +19,8 @@ pub async fn handle_validation(
     let nodes = node_list.get_nodes();
     let mut validated_count = 0;
 
+    println!("Nodes: {:?}", nodes);
+
     for node in nodes.iter() {
         if validate_data(node, &data.data).await {
             node_list.update_validation(&node.id, true);
