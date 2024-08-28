@@ -1,0 +1,6 @@
+target
+database
+Dockerfile
+.dockerignore
+.git
+.gitignore

@@ -1,0 +1,24 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: your-app-name
+  labels:
+    app: your-app-name
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: your-app-name
+  template:
+    metadata:
+      labels:
+        app: your-app-name
+    spec:
+      containers:
+        - name: your-app-name
+          image: your-docker-image:latest
+          ports:
+            - containerPort: 8080
+          env:
+            - name: RUST_LOG
+              value: 'info'
