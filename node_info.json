@@ -1,39 +1,15 @@
 {
   "nodes": [
     {
-      "id": "d356efe4-95f9-4df5-b428-916c23f3ec3c",
-      "address": "127.0.0.1:8080",
-      "public_key": "-----BEGIN RSA PUBLIC KEY-----\nMIIBCgKCAQEAnOv4tfjfKLu2oDKrm4rHn0+IU9kAcP9VtCZqYMZi2T8SsPPcCrBO\nTmX/utozSe8wRfiIYnVf2i4rMXJN2gPW9CTg9JBb/jIctsJaK41AspXnKykoG+UB\noKJjdYA+4GaZJH3pYlunEwttcXZJIt913hGTfDpShUAAsXZwsnkrxWWMkupUKa4J\nqW6a+fiCWJPHeahEJ4UDRAHutO1mMoSeK0xlDStXEi3/DvP5yRk0bZrFF5GZVEk9\nEiWOaz/EVMYejZ3xJMh2wo7wDAu9Xo2QTGaHzF8OiUEEcNAP9OSLqLYWbztIkdka\nyQWbgZssPCke2JrT/RlmbAq5bh1rss6erwIDAQAB\n-----END RSA PUBLIC KEY-----\n",
+      "id": "5f9765c1-12ab-4213-ae6c-35a26c1d8cb0",
+      "address": "10.132.0.4",
+      "public_key": "-----BEGIN RSA PUBLIC KEY-----\nMIIBCgKCAQEAoXDGqRnHqTN5hsdMJm0avsyXwfmojbXdvJ2l/cGR/1le7EhwgdI0\n8wr9kGl7CRJH5j4GDPYCqgQkXZPDrr3AY3atXCx9pVgjlNmmzhBJjk5AP/Cg7LNI\nR+4D5bVSlj3GFNmZC6K80vfVUodgRzkIAke4n9wwEuwknG8Ews2yey2bCy7JI/86\n99epFsEr007MBSr2n731x3EK2q+AJFjidY2hbXMGLV/nXwmX8l1Aqh+awyGIrAuT\nWUCJHAt+T21Ehe58rQZo3TvYnQFv1EzpiV3vnO3HXlFpd9t8RctvDazxiM5qivbk\n1hPx9cVcugUO373eDWapx9QnQzZEilRt2wIDAQAB\n-----END RSA PUBLIC KEY-----\n",
       "validated": null
     },
     {
-      "id": "261e2f9f-21a0-45d1-9227-a4bcb0b12f37",
-      "address": "127.0.0.1:8080",
-      "public_key": "-----BEGIN RSA PUBLIC KEY-----\nMIIBCgKCAQEAuHIs9/gDduEh0ezgGatut2ybFJHFDQ7evF1jB3wKtWJJCi0XeA08\nXBzwzBjG2CrqgdhqLL2mMnMh/74LbHPAeaQ6S+F/4h2hpQ6tYh2cFZH00QvAB+EV\nnVovCJfzHAjhG9uPNnOWQ5Ih/oVB3R5tqeKI2uTZOMYcNcWNbDY4zsSWMrJErSd7\n+1H9xnDVK63d59dxBswb9UTW9/KXWF3DWoiyk96rpZTTCdwdqnOCqO/1zMcL8X46\nY2QIk4EnQXAlUv7AGNAfAQhRXgUudbQme7CUg0mh9KOFsRuEVJpC6NJSMLrCk8ff\nVRMp3yxaKHQubcJCPit+o56lGmZ6q5KbEQIDAQAB\n-----END RSA PUBLIC KEY-----\n",
-      "validated": null
-    },
-    {
-      "id": "889fa847-ab70-401d-963d-032cc93ad559",
-      "address": "127.0.0.1:8080",
-      "public_key": "-----BEGIN RSA PUBLIC KEY-----\nMIIBCgKCAQEAr2UnsYGUztKpcFWBt7dm2AZGFnk5Ni+N9/mhb9KAWh9lwqDbCSLI\nMGyRcfaCI07NOsyrMbQNBVI7jqmKCyTPU+qss6QqnQdvTtgiCdkXBAeT8c6PZArr\nloKB6pg5XeDZsx+gqSFWWqA0VeEExmaN3WXr6SuLP0kUk0bpGjYyAwW0QoCrd7Xc\nKtY+I0RGmaICH2LgMzZ5t9+7l97dKdCkGYw4bdq2JyKcdOy/Elp29wzZSNTdGOES\nGaRa8QvzyDBm+PpPIvbkbJGpjFo41nVrYbnswKuHVESNPNmFpBMMS6CPPMX1VpsG\nChJev8WeWddo4HPxMfqAOYpiAG6jTYRrcwIDAQAB\n-----END RSA PUBLIC KEY-----\n",
-      "validated": null
-    },
-    {
-      "id": "5a380469-4523-49e7-86a4-409139d55ea1",
-      "address": "127.0.0.1:8080",
-      "public_key": "-----BEGIN RSA PUBLIC KEY-----\nMIIBCgKCAQEA5yplMgt7Lq2Dgy/gScA6LuEKjd06GZ42+Hv62nhnVz1IiGT9i4pq\nqrbSYijAPgCIaJX2BChfQfyutjBlc24oEtTsewAjWWdPjRGMHi/JM7rzWkyLQINR\nHY8mfE/rK62CiZKqOlr8AoY5DuuU2F/72uU/fza2rK7ltZT++gJfFVxY4Pvec7L4\nwX7jsYZUH6Z59wzum4pFMVNn/jijI9K9qhUcHgvtOIW48d4yM2lfmK194OnvfOV4\n2mk06W3UJ9H7msAo7//rAquwmjtZzXNL/zOZ/vSNoow6zQyyX+iHA8RF7l4mGqsJ\n/PGEMaeKRNwZhS2Rj5TEbdKT3zmYETPm0wIDAQAB\n-----END RSA PUBLIC KEY-----\n",
-      "validated": null
-    },
-    {
-      "id": "d5f53530-4e4d-48d8-9c00-8004f35f6444",
-      "address": "127.0.0.1:8080",
-      "public_key": "-----BEGIN RSA PUBLIC KEY-----\nMIIBCgKCAQEA48XFr8YtyapC5Tmb6HBLPFe8i4JOTFPKad/PeprjFd05Xq8pJ6lH\nKWobTaZDLGYZyleZu087GyF4/7+M0sckruO42Misgqs3tG4g/YxNOwyq+A788O3M\nl+5qEO1oNFKpS9vsId3U4/z2peuDstv5ro73x7RIPsut6DQZeH3vC38rmTMiu565\nx7J9xvI14QlfnrUDU9v8vy8unEQml5y6zLPTr6mZbJD/cRddxfiAxCwGJh9MJlBh\nQhpMk4ed6zM4bKMRAw7xAwLSRX70d5A3zQOBW91wi+RVW+QhnxkU8hxhfp3Ea9nq\n3hkuQFlxajibEwVSWgnJpaN2t9T82uBwLwIDAQAB\n-----END RSA PUBLIC KEY-----\n",
-      "validated": null
-    },
-    {
-      "id": "44b61fdf-022a-4ee2-ba4d-25b06e9d9632",
-      "address": "127.0.0.1:8080",
-      "public_key": "-----BEGIN RSA PUBLIC KEY-----\nMIIBCgKCAQEAu3qTa5lA23I8SHn7+LHgRiINLbVD/enGizTpgo/fHJ2LPgCQlkh7\nDDEJ/DH1KPzNWBPiwbfmxs87hnNBzBFq+1g4UzuCeLujoOMw2mI6547vcLQbO2IG\n6auBLI4HXpqD9F7Pfhh3PONiSHfBovpDff+XVPRGnKdr2Xtf/dkVGRyN3mHTkvtC\nSLKecqMQSxb2S0rmrmsmQirXrh/U4OVlN3S60Ik06GtnxVJaFywua+jdrbW14nny\nZHVVBzDTB0H5Y217ciuBWX63ddPTokpLkCuBtmjyjdDD1pa/tVXL46LgKgwjW7zy\nWK1vqHGNoYt7S2RfWE1OnqPesl5Uh8RSewIDAQAB\n-----END RSA PUBLIC KEY-----\n",
+      "id": "bed61b1a-879d-4100-9a3b-eea904055346",
+      "address": "mod node;:8080",
+      "public_key": "-----BEGIN RSA PUBLIC KEY-----\nMIIBCgKCAQEAyDGxlpZ7KXUmT0L7YrN/ZuJAq0eKUI2pZD7xLb3iKUxUM1HkQhJG\neAM/1khs33oB61+NYfvpYitaxY88FcaPfYEw6fCG9eHx+GVP16Ckubu4YGoB68dg\nnORomvc/1fEmQrm60diI873BzIigctnO7RhmmeML7EpD/1ukdrSpbFFOHbYErIdj\npxFcuYVf+AkkEtSTSr0ctW1zK+5us1/uD+4cbimXeMSFnCV6kxU406cosm59yT49\nRBWUOcqhhlnp4yPjLUcAo2aILK7tKduoMDBj6V6gB/44xoMCB2w0nMjEUajV2xkU\noK9mD80sJAb78qnwKefWP5Ljs9T3XymPgwIDAQAB\n-----END RSA PUBLIC KEY-----\n",
       "validated": null
     }
   ]
