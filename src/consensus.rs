@@ -55,7 +55,7 @@ pub async fn handle_validation(
 
 async fn send_to_api(data: Data) -> bool {
     let client = Client::new();
-    let response = client.post("http://127.0.0.1:8000/verify").json(&data).send().await;
+    let response = client.post("http://zkp.synnq.io/verify").json(&data).send().await;
 
     match response {
         Ok(res) => {

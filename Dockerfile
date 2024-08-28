@@ -28,7 +28,7 @@ RUN apt-get update && apt-get install -y librocksdb-dev && rm -rf /var/lib/apt/l
 COPY --from=builder /usr/src/app/target/release/synnq_val /usr/local/bin/synnq_val
 
 # Expose the application port
-EXPOSE 8000
+EXPOSE 8080
 
 # Set the default command to run the application
 CMD ["/usr/local/bin/synnq_val"]
