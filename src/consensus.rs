@@ -4,6 +4,7 @@ use actix_web::{ web, HttpResponse, Error };
 use reqwest::Client;
 use serde::Deserialize;
 use anyhow::{ anyhow, Result };
+use crate::node::Node;
 
 #[derive(Deserialize)]
 struct VerifyResponse {
@@ -38,7 +39,13 @@ pub async fn handle_validation(
 
             // Send data.data to the external API and handle response
             match send_transaction_data(&data.data).await {
-                Ok(api_response) => Ok(HttpResponse::Ok().body(api_response)),
+                Ok(api_response) => {
+                    // Broadcast the transaction data to all other nodes
+                    if let Err(e) = broadcast_to_nodes(&nodes, &data.data).await {
+                        eprintln!("Failed to broadcast to nodes: {}", e);
+                    }
+                    Ok(HttpResponse::Ok().body(api_response))
+                }
                 Err(e) => {
                     eprintln!("Failed to send transaction data: {}", e);
                     Ok(HttpResponse::InternalServerError().body("Failed to send transaction data"))
@@ -94,4 +101,28 @@ async fn send_transaction_data(transaction_data: &serde_json::Value) -> Result<S
         eprintln!("Response: {}", body);
         Err(anyhow!("Failed to send transaction data. Status: {}. Body: {}", status, body))
     }
+}
+
+async fn broadcast_to_nodes(nodes: &[Node], transaction_data: &serde_json::Value) -> Result<()> {
+    let client = Client::new();
+
+    for node in nodes {
+        let url = format!("{}/receive_broadcast", node.address);
+        let response = client.post(&url).json(transaction_data).send().await;
+
+        match response {
+            Ok(res) => {
+                if res.status().is_success() {
+                    println!("Broadcast to node {} succeeded.", node.id);
+                } else {
+                    eprintln!("Failed to broadcast to node {}. Status: {}", node.id, res.status());
+                }
+            }
+            Err(err) => {
+                eprintln!("Failed to send broadcast to node {}: {}", node.id, err);
+            }
+        }
+    }
+
+    Ok(())
 }

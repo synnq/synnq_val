@@ -5,7 +5,38 @@ mod consensus;
 mod storage;
 
 use actix_web::{ App, HttpServer };
+use reqwest::Client;
+use serde::Serialize;
 use std::fs;
+use std::error::Error;
+
+#[derive(Serialize)]
+struct RegisterNodeRequest {
+    id: String,
+    address: String,
+    public_key: String,
+}
+
+async fn register_with_discovery_service(node: &node::Node) -> Result<(), Box<dyn Error>> {
+    let client = Client::new();
+    let discovery_service_url = "https://synnq-discovery-f77aaphiwa-uc.a.run.app/register_node";
+
+    let request_body = RegisterNodeRequest {
+        id: node.id.clone(),
+        address: node.address.clone(),
+        public_key: node.public_key.clone(),
+    };
+
+    let response = client.post(discovery_service_url).json(&request_body).send().await?;
+
+    if response.status().is_success() {
+        println!("Successfully registered with discovery service.");
+    } else {
+        eprintln!("Failed to register with discovery service. Status: {}", response.status());
+    }
+
+    Ok(())
+}
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
@@ -23,7 +54,12 @@ async fn main() -> std::io::Result<()> {
 
     // Log the node's unique ID and public key
     println!("Node ID: {}", node.id);
-    // println!("Public Key: {}", node.public_key);
+    println!("Public Key: {}", node.public_key);
+
+    // Register with the central discovery service
+    if let Err(e) = register_with_discovery_service(&node).await {
+        eprintln!("Error during registration: {}", e);
+    }
 
     let node_list = node::NodeList::new();
     node_list.add_node(node.clone());
