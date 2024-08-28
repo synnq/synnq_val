@@ -2,7 +2,6 @@ use crate::{ node::NodeList, validation::validate_data, storage::Storage };
 use crate::api::Data;
 use actix_web::{ web, HttpResponse, Error };
 use reqwest::Client;
-use reqwest::StatusCode;
 use serde::Deserialize;
 use anyhow::{ anyhow, Result };
 
