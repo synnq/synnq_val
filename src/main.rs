@@ -152,7 +152,7 @@ async fn main() -> std::io::Result<()> {
         existing_node.clone()
     } else {
         let external_ip = prompt_for_external_ip();
-        let node_address = format!("{}:8080", external_ip);
+        let node_address = format!("{}", external_ip);
         let mut new_node = node::Node::new(&node_address);
         new_node.id = config.uuid.clone();
         new_node.save_to_file(node_info_file);
