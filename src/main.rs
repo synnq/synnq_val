@@ -9,6 +9,7 @@ use reqwest::Client;
 use serde::{ Serialize, Deserialize };
 use std::fs;
 use std::error::Error;
+use local_ip_address::local_ip;
 
 #[derive(Serialize)]
 struct RegisterNodeRequest {
@@ -102,8 +103,17 @@ async fn main() -> std::io::Result<()> {
     };
 
     // Create a new node and save it if needed
+    let external_ip = match local_ip() {
+        Ok(ip) => ip.to_string(),
+        Err(_) => {
+            eprintln!("Failed to determine the local IP address. Defaulting to 127.0.0.1.");
+            "127.0.0.1".to_string()
+        }
+    };
+
     let node = if node_list.get_nodes().is_empty() {
-        let new_node = node::Node::new("127.0.0.1:8080");
+        let node_address = format!("{}", external_ip); // Use the external IP address
+        let new_node = node::Node::new(&node_address);
         new_node.save_to_file(node_info_file);
         node_list.add_node(new_node.clone());
         new_node
