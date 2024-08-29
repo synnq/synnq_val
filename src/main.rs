@@ -40,30 +40,30 @@ struct NodeInfo {
 
 // Check if config.json exists, and create if not. Check or create UUID.
 fn check_or_create_uuid() -> io::Result<Config> {
-    // Check if the config file exists and read its contents
     if let Ok(config_data) = fs::read_to_string(CONFIG_FILE) {
-        // Try to deserialize the config file to get the UUID and address
         if let Ok(config) = serde_json::from_str::<Config>(&config_data) {
             return Ok(config);
         }
     }
 
-    // If the file does not exist or deserialization failed, create a new UUID and address
     let new_uuid = Uuid::new_v4().to_string();
-
-    // Prompt the user to input the node's address
     let mut input_address = String::new();
+
     println!("Enter the node's address (e.g., 127.0.0.1:8080): ");
     io::stdin().read_line(&mut input_address)?;
     let input_address = input_address.trim().to_string();
 
-    // Create a new config object with the UUID and address
+    // Validate the address format
+    if input_address.parse::<std::net::SocketAddr>().is_err() {
+        eprintln!("Invalid address format: {}", input_address);
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, "Invalid address format"));
+    }
+
     let new_config = Config {
         uuid: new_uuid.clone(),
         address: input_address.clone(),
     };
 
-    // Serialize the new config and save it to the config file
     let config_json = serde_json::to_string_pretty(&new_config)?;
     fs::write(CONFIG_FILE, config_json)?;
 
@@ -148,7 +148,7 @@ async fn main() -> std::io::Result<()> {
     info!("Starting application...");
 
     // Load the configuration (UUID and address)
-    let config = Config::load(CONFIG_FILE).expect("Failed to create or fetch UUID and address");
+    let config = check_or_create_uuid().expect("Failed to create or fetch UUID and address");
 
     // Fetch and update nodes from the discovery service
     let node_info = fetch_and_update_nodes(NODE_INFO_FILE).await.unwrap_or_else(|_| NodeInfo {
@@ -203,6 +203,6 @@ async fn main() -> std::io::Result<()> {
             .app_data(web::Data::new(Arc::clone(&storage)))
             .configure(api::init_routes)
     })
-        .bind(config.address.parse::<SocketAddr>().expect("Invalid socket address"))?
+        .bind((config.address.split(":").next().unwrap(), 8080))?
         .run().await
 }
