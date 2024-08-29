@@ -9,19 +9,22 @@ use actix_web::{ App, HttpServer, web };
 use reqwest::Client;
 use serde::{ Deserialize, Serialize };
 use std::fs;
-use std::sync::Arc;
+use std::sync::{ Arc };
 use std::error::Error;
-use std::io;
+use std::io::{ self, Write };
 use uuid::Uuid;
 use tokio::time::{ sleep, Duration };
+use std::net::SocketAddr;
 use crate::node::{ NodeList, Node };
 use crate::config::Config;
 use crate::storage::Storage;
 use tracing::{ debug, info };
+use tracing_subscriber::fmt::Subscriber;
 
 const CONFIG_FILE: &str = "config.json";
 const NODE_INFO_FILE: &str = "node_info.json";
-const DISCOVERY_SERVICE_URL: &str = "https://synnq-discovery-f77aaphiwa-uc.a.run.app";
+// const DISCOVERY_SERVICE_URL: &str = "https://synnq-discovery-f77aaphiwa-uc.a.run.app";
+const DISCOVERY_SERVICE_URL: &str = "http://127.0.0.1:3000";
 
 #[derive(Serialize)]
 struct RegisterNodeRequest {
@@ -37,24 +40,30 @@ struct NodeInfo {
 
 // Check if config.json exists, and create if not. Check or create UUID.
 fn check_or_create_uuid() -> io::Result<Config> {
+    // Check if the config file exists and read its contents
     if let Ok(config_data) = fs::read_to_string(CONFIG_FILE) {
+        // Try to deserialize the config file to get the UUID and address
         if let Ok(config) = serde_json::from_str::<Config>(&config_data) {
             return Ok(config);
         }
     }
 
+    // If the file does not exist or deserialization failed, create a new UUID and address
     let new_uuid = Uuid::new_v4().to_string();
 
+    // Prompt the user to input the node's address
     let mut input_address = String::new();
     println!("Enter the node's address (e.g., 127.0.0.1:8080): ");
     io::stdin().read_line(&mut input_address)?;
     let input_address = input_address.trim().to_string();
 
+    // Create a new config object with the UUID and address
     let new_config = Config {
         uuid: new_uuid.clone(),
         address: input_address.clone(),
     };
 
+    // Serialize the new config and save it to the config file
     let config_json = serde_json::to_string_pretty(&new_config)?;
     fs::write(CONFIG_FILE, config_json)?;
 
@@ -62,31 +71,26 @@ fn check_or_create_uuid() -> io::Result<Config> {
 }
 
 // Fetch and update nodes from the discovery service
-async fn fetch_and_update_nodes(node_info_file: &str) -> Result<NodeInfo, Box<dyn Error + Send>> {
+async fn fetch_and_update_nodes(
+    node_info_file: &str
+) -> Result<NodeInfo, Box<dyn Error + Send + Sync>> {
     let client = Client::new();
     let discovery_service_url = format!("{}/nodes", DISCOVERY_SERVICE_URL);
 
     // Send a GET request to the discovery service
-    let response = client
-        .get(&discovery_service_url)
-        .send().await
-        .map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
+    let response = client.get(&discovery_service_url).send().await?;
 
     // Check if the response is successful
     if response.status().is_success() {
         // Parse the response JSON into a Vec<Node>
-        let nodes: Vec<Node> = response
-            .json().await
-            .map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
+        let nodes: Vec<Node> = response.json().await?;
         let node_info = NodeInfo { nodes };
 
         // Serialize the NodeInfo struct to a pretty JSON string
-        let data = serde_json
-            ::to_string_pretty(&node_info)
-            .map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
+        let data = serde_json::to_string_pretty(&node_info)?;
 
         // Write the JSON string to the specified file
-        fs::write(node_info_file, data).map_err(|e| Box::new(e) as Box<dyn Error + Send>)?;
+        fs::write(node_info_file, data)?;
 
         println!("Node information updated successfully.");
 
@@ -95,7 +99,8 @@ async fn fetch_and_update_nodes(node_info_file: &str) -> Result<NodeInfo, Box<dy
     } else {
         // Log an error message and return an error if the request failed
         eprintln!("Failed to fetch nodes from discovery service. Status: {}", response.status());
-        Err(Box::new(response.error_for_status().unwrap_err()) as Box<dyn Error + Send>)
+        let error_text = response.text().await?;
+        Err(format!("API error body: {}", error_text).into())
     }
 }
 
@@ -104,7 +109,7 @@ async fn register_with_discovery_service(
     node: &Node,
     uuid: String,
     address: String
-) -> Result<(), Box<dyn Error + Send>> {
+) -> Result<(), Box<dyn Error + Send + Sync>> {
     let client = Client::new();
     let discovery_service_url = format!("{}/register_node", DISCOVERY_SERVICE_URL);
     info!("Address: {}", address);
@@ -114,16 +119,14 @@ async fn register_with_discovery_service(
         public_key: node.public_key.clone(),
     };
 
-    let response = client
-        .post(&discovery_service_url)
-        .json(&request_body)
-        .send().await
-        .map_err(|e| Box::new(e) as Box<dyn Error + Send>)?; // Convert reqwest::Error to Box<dyn Error + Send>
+    let response = client.post(&discovery_service_url).json(&request_body).send().await?;
 
     if response.status().is_success() {
         println!("Successfully registered with discovery service.");
     } else {
         eprintln!("Failed to register with discovery service. Status: {}", response.status());
+        let error_text = response.text().await?;
+        return Err(format!("API error body: {}", error_text).into());
     }
 
     Ok(())
@@ -136,7 +139,7 @@ async fn main() -> std::io::Result<()> {
     info!("Starting application...");
 
     // Load the configuration (UUID and address)
-    let config = check_or_create_uuid().expect("Failed to create or fetch UUID and address");
+    let config = Config::load(CONFIG_FILE).expect("Failed to create or fetch UUID and address");
 
     // Fetch and update nodes from the discovery service
     let node_info = fetch_and_update_nodes(NODE_INFO_FILE).await.unwrap_or_else(|_| NodeInfo {
@@ -191,6 +194,6 @@ async fn main() -> std::io::Result<()> {
             .app_data(web::Data::new(Arc::clone(&storage)))
             .configure(api::init_routes)
     })
-        .bind(&config.address)?
+        .bind(config.address.parse::<SocketAddr>().expect("Invalid socket address"))?
         .run().await
 }
