@@ -9,7 +9,7 @@ use actix_web::{ App, HttpServer, web };
 use reqwest::Client;
 use serde::{ Deserialize, Serialize };
 use std::fs;
-use std::sync::{ Arc };
+use std::sync::Arc;
 use std::error::Error;
 use std::io::{ self, Write };
 use uuid::Uuid;
@@ -24,7 +24,6 @@ use tracing_subscriber::fmt::Subscriber;
 const CONFIG_FILE: &str = "config.json";
 const NODE_INFO_FILE: &str = "node_info.json";
 const DISCOVERY_SERVICE_URL: &str = "https://synnq-discovery-f77aaphiwa-uc.a.run.app";
-// const DISCOVERY_SERVICE_URL: &str = "http://127.0.0.1:8080";
 
 #[derive(Serialize)]
 struct RegisterNodeRequest {
@@ -49,12 +48,16 @@ fn check_or_create_uuid() -> io::Result<Config> {
     let new_uuid = Uuid::new_v4().to_string();
     let mut input_address = String::new();
 
-    println!("Enter the node's address (e.g., 127.0.0.1:8080): ");
+    println!("Enter the node's address (e.g., 127.0.0.1:8080 or http://node.synnq.io): ");
     io::stdin().read_line(&mut input_address)?;
     let input_address = input_address.trim().to_string();
 
     // Validate the address format
-    if input_address.parse::<std::net::SocketAddr>().is_err() {
+    if
+        input_address.parse::<SocketAddr>().is_err() &&
+        !input_address.starts_with("http://") &&
+        !input_address.starts_with("https://")
+    {
         eprintln!("Invalid address format: {}", input_address);
         return Err(io::Error::new(io::ErrorKind::InvalidInput, "Invalid address format"));
     }
@@ -70,6 +73,29 @@ fn check_or_create_uuid() -> io::Result<Config> {
     Ok(new_config)
 }
 
+async fn resolve_address(address: &str) -> Result<String, Box<dyn Error + Send + Sync>> {
+    for _ in 0..5 {
+        match reqwest::get(address).await {
+            Ok(_) => {
+                println!("Successfully connected to {}", address);
+                return Ok(address.to_string());
+            }
+            Err(e) => {
+                eprintln!("Error resolving address: {:?}", e);
+                tokio::time::sleep(Duration::from_secs(5)).await;
+            }
+        }
+    }
+    Err(
+        Box::new(
+            std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "Failed to resolve address after multiple attempts"
+            )
+        )
+    )
+}
+
 // Fetch and update nodes from the discovery service
 async fn fetch_and_update_nodes(
     node_info_file: &str
@@ -77,27 +103,18 @@ async fn fetch_and_update_nodes(
     let client = Client::new();
     let discovery_service_url = format!("{}/nodes", DISCOVERY_SERVICE_URL);
 
-    // Send a GET request to the discovery service
     let response = client.get(&discovery_service_url).send().await?;
 
-    // Check if the response is successful
     if response.status().is_success() {
-        // Parse the response JSON into a Vec<Node>
         let nodes: Vec<Node> = response.json().await?;
         let node_info = NodeInfo { nodes };
 
-        // Serialize the NodeInfo struct to a pretty JSON string
         let data = serde_json::to_string_pretty(&node_info)?;
-
-        // Write the JSON string to the specified file
         fs::write(node_info_file, data)?;
 
         println!("Node information updated successfully.");
-
-        // Return the node information
         Ok(node_info)
     } else {
-        // Log an error message and return an error if the request failed
         eprintln!("Failed to fetch nodes from discovery service. Status: {}", response.status());
         let error_text = response.text().await?;
         Err(format!("API error body: {}", error_text).into())
@@ -123,7 +140,7 @@ async fn register_with_discovery_service(
 
     match response {
         Ok(resp) => {
-            let status = resp.status(); // Store the status code before consuming the response
+            let status = resp.status();
             if status.is_success() {
                 println!("Successfully registered with discovery service.");
                 Ok(())
@@ -147,15 +164,20 @@ async fn main() -> std::io::Result<()> {
 
     info!("Starting application...");
 
-    // Load the configuration (UUID and address)
     let config = check_or_create_uuid().expect("Failed to create or fetch UUID and address");
 
-    // Fetch and update nodes from the discovery service
+    // If the address is not an IP, resolve it.
+    if config.address.parse::<SocketAddr>().is_err() {
+        if let Err(e) = resolve_address(&config.address).await {
+            eprintln!("Failed to resolve node address: {}", e);
+            return Err(std::io::Error::new(std::io::ErrorKind::Other, e));
+        }
+    }
+
     let node_info = fetch_and_update_nodes(NODE_INFO_FILE).await.unwrap_or_else(|_| NodeInfo {
         nodes: vec![],
     });
 
-    // Initialize NodeList and determine if the current node needs to register
     let node_list = Arc::new(tokio::sync::Mutex::new(NodeList::from_nodes(node_info.nodes)));
 
     let node = {
@@ -179,7 +201,6 @@ async fn main() -> std::io::Result<()> {
 
     let storage = Arc::new(tokio::sync::Mutex::new(Storage::new("database/db")));
 
-    // Periodically fetch and update nodes every 5 seconds
     let node_list_clone = Arc::clone(&node_list);
     tokio::spawn(async move {
         loop {
@@ -203,6 +224,10 @@ async fn main() -> std::io::Result<()> {
             .app_data(web::Data::new(Arc::clone(&storage)))
             .configure(api::init_routes)
     })
-        .bind((config.address.split(":").next().unwrap(), 8080))?
+        .bind(
+            config.address
+                .parse::<SocketAddr>()
+                .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, e))?
+        )?
         .run().await
 }

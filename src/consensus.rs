@@ -11,6 +11,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio::time::sleep;
 use tracing::info;
+use std::net::SocketAddr;
 
 #[derive(Deserialize)]
 struct VerifyResponse {
@@ -160,8 +161,12 @@ pub async fn broadcast_to_nodes(
 
     let broadcast_results: Vec<_> = join_all(
         nodes.iter().map(|node| async {
-            // Ensure the URL is absolute by prefixing with "http://"
-            let url = format!("http://{}/receive_broadcast", node.address);
+            // Construct the URL based on whether it's an IP address or a URL.
+            let url = if node.address.parse::<SocketAddr>().is_ok() {
+                format!("http://{}/receive_broadcast", node.address)
+            } else {
+                format!("{}/receive_broadcast", node.address)
+            };
             println!("Broadcasting to node {}: {}", node.id, url);
 
             match client.post(&url).json(transaction_data).send().await {
