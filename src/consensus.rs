@@ -4,9 +4,9 @@ use actix_web::{ web, HttpResponse, Error };
 use reqwest::Client;
 use serde::Deserialize;
 use anyhow::{ anyhow, Result };
-use crate::node::Node;
 use futures::future::join_all;
 use tokio::time::{ timeout, Duration };
+use crate::node::Node;
 
 #[derive(Deserialize)]
 struct VerifyResponse {
@@ -23,9 +23,12 @@ pub async fn handle_validation(
 
     println!("Starting validation with nodes: {:?}", nodes);
 
+    // Broadcast the data to all nodes for validation
     let validation_results: Vec<_> = join_all(
         nodes.iter().map(|node| async {
+            let url = format!("{}/receive_broadcast", node.address);
             let res = timeout(Duration::from_secs(5), validate_data(node, &data.data)).await;
+
             match res {
                 Ok(true) => {
                     println!("Node {} successfully validated the data.", node.id);
@@ -43,6 +46,7 @@ pub async fn handle_validation(
         })
     ).await;
 
+    // Count the number of successful validations
     for res in validation_results {
         if res.unwrap_or(false) {
             validated_count += 1;
@@ -55,6 +59,7 @@ pub async fn handle_validation(
         nodes.len()
     );
 
+    // Check if the required percentage of nodes have validated the data
     let required_percentage = 0.8;
     if (validated_count as f64) / (nodes.len() as f64) >= required_percentage {
         println!(
@@ -62,6 +67,8 @@ pub async fn handle_validation(
             validated_count,
             required_percentage
         );
+
+        // If validation passed, send the data to the external API and handle the response
         if send_to_api(data.clone()).await {
             let storage_key = data.secret.to_string();
             storage.store_data(&storage_key, &data.data.to_string());
@@ -69,7 +76,7 @@ pub async fn handle_validation(
             // Send data.data to the external API and handle response
             match send_transaction_data(&data.data).await {
                 Ok(api_response) => {
-                    // Broadcast the transaction data to all other nodes
+                    // Optionally broadcast the final transaction data to all other nodes
                     if let Err(e) = broadcast_to_nodes(&nodes, &data.data).await {
                         eprintln!("Failed to broadcast to nodes: {}", e);
                     }

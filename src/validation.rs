@@ -38,7 +38,36 @@ pub struct Meta {
 pub async fn validate_data(_node: &Node, data: &Value) -> bool {
     // Attempt to deserialize the `data` field into the `TransactionData` struct
     match from_value::<TransactionData>(data.clone()) {
-        Ok(_) => true, // If deserialization succeeds, the data is valid
-        Err(_) => false, // If deserialization fails, the data is invalid
+        Ok(transaction) => {
+            // Perform content validation
+            if transaction.transaction_type.is_empty() {
+                eprintln!("Transaction type is empty");
+                return false;
+            }
+
+            if transaction.sender.is_empty() || transaction.receiver.is_empty() {
+                eprintln!("Sender or receiver address is empty");
+                return false;
+            }
+
+            if transaction.amount == 0 {
+                eprintln!("Transaction amount cannot be zero");
+                return false;
+            }
+
+            if transaction.private_key.len() != 64 {
+                eprintln!("Invalid private key length");
+                return false;
+            }
+
+            // Add more checks as needed...
+
+            // If all checks pass
+            true
+        }
+        Err(e) => {
+            eprintln!("Failed to deserialize data: {}", e);
+            false
+        }
     }
 }

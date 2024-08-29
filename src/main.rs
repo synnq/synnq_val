@@ -105,7 +105,7 @@ async fn main() -> std::io::Result<()> {
         existing_node
     } else {
         eprintln!("Node with UUID {} not found. Registering new node.", uuid);
-        let new_node = node::Node::new("127.0.0.1:8080"); // Replace with the actual IP
+        let new_node = node::Node::new("127.0.0.1:8080");
         register_with_discovery_service(&new_node).await.ok();
         fetch_and_update_nodes(node_info_file).await.ok();
         new_node
