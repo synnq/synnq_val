@@ -9,8 +9,6 @@ use reqwest::Client;
 use serde::{ Serialize, Deserialize };
 use std::fs;
 use std::error::Error;
-use std::io::{ self, Write };
-use uuid::Uuid;
 
 #[derive(Serialize)]
 struct RegisterNodeRequest {
@@ -22,36 +20,6 @@ struct RegisterNodeRequest {
 #[derive(Serialize, Deserialize)]
 struct NodeInfo {
     nodes: Vec<node::Node>,
-}
-
-#[derive(Serialize, Deserialize)]
-struct Config {
-    uuid: String,
-}
-
-impl Config {
-    fn load(config_file: &str) -> Result<Self, std::io::Error> {
-        match fs::read_to_string(config_file) {
-            Ok(contents) =>
-                serde_json
-                    ::from_str(&contents)
-                    .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e)),
-            Err(ref e) if e.kind() == std::io::ErrorKind::NotFound => {
-                let new_config = Config {
-                    uuid: Uuid::new_v4().to_string(),
-                };
-                new_config.save(config_file)?;
-                Ok(new_config)
-            }
-            Err(e) => Err(e),
-        }
-    }
-
-    fn save(&self, config_file: &str) -> Result<(), std::io::Error> {
-        let data = serde_json::to_string_pretty(self)?;
-        fs::write(config_file, data)?;
-        Ok(())
-    }
 }
 
 async fn register_with_discovery_service(node: &node::Node) -> Result<(), Box<dyn Error>> {
@@ -86,8 +54,9 @@ async fn fetch_and_update_nodes(node_info_file: &str) -> Result<(), Box<dyn Erro
         let nodes: Vec<node::Node> = response.json().await?;
         let node_info = NodeInfo { nodes };
 
+        // Save the nodes to node_info.json
         let data = serde_json::to_string_pretty(&node_info)?;
-        fs::write(node_info_file, &data)?;
+        fs::write(node_info_file, data)?;
 
         println!("Node information updated successfully.");
     } else {
@@ -97,19 +66,8 @@ async fn fetch_and_update_nodes(node_info_file: &str) -> Result<(), Box<dyn Erro
     Ok(())
 }
 
-fn prompt_for_external_ip() -> String {
-    print!("Enter the external IP address: ");
-    io::stdout().flush().unwrap();
-    let mut ip = String::new();
-    io::stdin().read_line(&mut ip).unwrap();
-    ip.trim().to_string()
-}
-
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    let config_file = "config.json";
-    let config = Config::load(config_file).expect("Failed to load or create config file");
-
     let node_info_file = "node_info.json";
 
     // Fetch and update nodes from the discovery service
@@ -142,32 +100,23 @@ async fn main() -> std::io::Result<()> {
         node::NodeList::new()
     };
 
-    // Check if the UUID from the config exists in the node list
-    let node = if
-        let Some(existing_node) = node_list
-            .get_nodes()
-            .iter()
-            .find(|n| n.id == config.uuid)
-    {
-        existing_node.clone()
-    } else {
-        let external_ip = prompt_for_external_ip();
-        let node_address = format!("{}", external_ip);
-        let mut new_node = node::Node::new(&node_address);
-        new_node.id = config.uuid.clone();
+    // Create a new node and save it if needed
+    let node = if node_list.get_nodes().is_empty() {
+        let new_node = node::Node::new("127.0.0.1:8080");
         new_node.save_to_file(node_info_file);
         node_list.add_node(new_node.clone());
-
-        // Register the new node with the discovery service
-        if let Err(e) = register_with_discovery_service(&new_node).await {
-            eprintln!("Error during registration: {}", e);
-        }
-
         new_node
+    } else {
+        node_list.get_nodes()[0].clone()
     };
 
     println!("Node ID: {}", node.id);
     println!("Public Key: {}", node.public_key);
+
+    // Register the node with the discovery service
+    if let Err(e) = register_with_discovery_service(&node).await {
+        eprintln!("Error during registration: {}", e);
+    }
 
     let storage = storage::Storage::new("database/db");
 
@@ -177,7 +126,6 @@ async fn main() -> std::io::Result<()> {
             .app_data(actix_web::web::Data::new(storage.clone())) // Pass the shared storage instance
             .configure(api::init_routes)
     })
-        .bind(("0.0.0.0", 8080))
-        ? // Bind to all interfaces
+        .bind(("127.0.0.1", 8080))?
         .run().await
 }

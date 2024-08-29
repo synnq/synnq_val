@@ -1,6 +1,4 @@
-/target
+/target/
 /database/
-
 private_key.pem
-config.json
-node_info.json
+*.json
