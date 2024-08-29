@@ -5,6 +5,7 @@ use reqwest::Client;
 use serde::Deserialize;
 use anyhow::{ anyhow, Result };
 use crate::node::Node;
+use futures::future::join_all;
 
 #[derive(Deserialize)]
 struct VerifyResponse {
@@ -17,24 +18,40 @@ pub async fn handle_validation(
     storage: web::Data<Storage>
 ) -> Result<HttpResponse, Error> {
     let nodes = node_list.get_nodes();
-    let mut validated_count = 0;
+    println!("Starting validation with nodes: {:?}", nodes);
 
-    println!("Nodes: {:?}", nodes);
+    // Validate data with all nodes concurrently and collect results
+    let validation_results: Vec<_> = join_all(
+        nodes.iter().map(|node| async {
+            match validate_data(node, &data.data).await {
+                true => {
+                    println!("Node {} successfully validated the data.", node.id);
+                    node_list.update_validation(&node.id, true);
+                    Some(true)
+                }
+                false => {
+                    println!("Node {} failed to validate the data.", node.id);
+                    None
+                }
+            }
+        })
+    ).await;
 
-    for node in nodes.iter() {
-        if validate_data(node, &data.data).await {
-            node_list.update_validation(&node.id, true);
-            validated_count += 1;
-        }
-    }
-
+    // Calculate the percentage of successful validations
+    let validated_count = validation_results
+        .iter()
+        .filter(|&&res| res.is_some())
+        .count();
     let required_percentage = 0.8;
-    if (validated_count as f64) / (nodes.len() as f64) >= required_percentage {
+    let validation_passed = (validated_count as f64) / (nodes.len() as f64) >= required_percentage;
+
+    if validation_passed {
         println!(
-            "Validated Count {} >= Required Percentage {}",
+            "Validation passed: {} out of {} nodes successfully validated the data.",
             validated_count,
-            required_percentage
+            nodes.len()
         );
+
         if send_to_api(data.clone()).await {
             let storage_key = data.secret.to_string();
             storage.store_data(&storage_key, &data.data.to_string());
@@ -58,6 +75,11 @@ pub async fn handle_validation(
             Ok(HttpResponse::BadRequest().body("Data validation failed on external API"))
         }
     } else {
+        println!(
+            "Validation failed: only {} out of {} nodes successfully validated the data.",
+            validated_count,
+            nodes.len()
+        );
         Ok(HttpResponse::BadRequest().body("Insufficient nodes validated the data"))
     }
 }
@@ -108,21 +130,30 @@ async fn send_transaction_data(transaction_data: &serde_json::Value) -> Result<S
 async fn broadcast_to_nodes(nodes: &[Node], transaction_data: &serde_json::Value) -> Result<()> {
     let client = Client::new();
 
-    for node in nodes {
-        let url = format!("{}/receive_broadcast", node.address);
-        let response = client.post(&url).json(transaction_data).send().await;
-
-        match response {
-            Ok(res) => {
-                if res.status().is_success() {
+    let broadcast_results: Vec<_> = join_all(
+        nodes.iter().map(|node| async {
+            let url = format!("{}/receive_broadcast", node.address);
+            match client.post(&url).json(transaction_data).send().await {
+                Ok(res) if res.status().is_success() => {
                     println!("Broadcast to node {} succeeded.", node.id);
-                } else {
+                    Ok(())
+                }
+                Ok(res) => {
                     eprintln!("Failed to broadcast to node {}. Status: {}", node.id, res.status());
+                    Err(anyhow!("Broadcast failed for node {}", node.id))
+                }
+                Err(err) => {
+                    eprintln!("Failed to send broadcast to node {}: {}", node.id, err);
+                    Err(anyhow!("Broadcast failed for node {}", node.id))
                 }
             }
-            Err(err) => {
-                eprintln!("Failed to send broadcast to node {}: {}", node.id, err);
-            }
+        })
+    ).await;
+
+    // Collect and log any errors from broadcasting
+    for result in broadcast_results {
+        if let Err(e) = result {
+            eprintln!("Broadcast error: {}", e);
         }
     }
 

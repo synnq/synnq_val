@@ -9,6 +9,7 @@ use reqwest::Client;
 use serde::{ Serialize, Deserialize };
 use std::fs;
 use std::error::Error;
+use uuid::Uuid;
 
 #[derive(Serialize)]
 struct RegisterNodeRequest {
@@ -52,7 +53,10 @@ async fn fetch_and_update_nodes(node_info_file: &str) -> Result<(), Box<dyn Erro
 
     if response.status().is_success() {
         let nodes: Vec<node::Node> = response.json().await?;
-        let node_info = NodeInfo { nodes };
+        let node_info = NodeInfo { nodes: nodes.clone() };
+
+        // Log the nodes fetched from the discovery service
+        println!("Fetched nodes: {:?}", nodes);
 
         // Save the nodes to node_info.json
         let data = serde_json::to_string_pretty(&node_info)?;
@@ -70,33 +74,28 @@ async fn fetch_and_update_nodes(node_info_file: &str) -> Result<(), Box<dyn Erro
 async fn main() -> std::io::Result<()> {
     let node_info_file = "node_info.json";
 
-    // Fetch and update nodes from the discovery service
-    let _ = fetch_and_update_nodes(node_info_file).await;
+    // Step 1: Fetch and update nodes from the discovery service
+    if let Err(e) = fetch_and_update_nodes(node_info_file).await {
+        eprintln!("Failed to fetch and update nodes: {}", e);
+    }
 
-    // Load the current node information from the file
-    let node_list = if fs::metadata(node_info_file).is_ok() {
-        match fs::read_to_string(node_info_file) {
-            Ok(contents) => {
-                match serde_json::from_str::<NodeInfo>(&contents) {
-                    Ok(node_info) => {
-                        let mut node_list = node::NodeList::new();
-                        for node in node_info.nodes {
-                            node_list.add_node(node);
-                        }
-                        node_list
-                    }
-                    Err(_) => {
-                        eprintln!("Failed to parse node info. Creating a new node list.");
-                        node::NodeList::new()
-                    }
+    // Step 2: Load the current node information from the file
+    let node_list = if let Ok(contents) = fs::read_to_string(node_info_file) {
+        match serde_json::from_str::<NodeInfo>(&contents) {
+            Ok(node_info) => {
+                let mut node_list = node::NodeList::new();
+                for node in node_info.nodes {
+                    node_list.add_node(node);
                 }
+                node_list
             }
             Err(_) => {
-                eprintln!("Failed to read node info file. Creating a new node list.");
+                eprintln!("Failed to parse node info. Creating a new node list.");
                 node::NodeList::new()
             }
         }
     } else {
+        eprintln!("Failed to read node info file. Creating a new node list.");
         node::NodeList::new()
     };
 
