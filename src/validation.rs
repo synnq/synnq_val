@@ -46,11 +46,6 @@ pub async fn validate_data(_node: &Node, data: &Value) -> bool {
                 return false;
             }
 
-            if transaction.amount == 0 {
-                eprintln!("Transaction amount cannot be zero");
-                return false;
-            }
-
             if transaction.private_key.len() != 64 {
                 eprintln!("Invalid private key length");
                 return false;

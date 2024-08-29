@@ -16,6 +16,9 @@ use uuid::Uuid;
 use tokio::time::{ sleep, Duration };
 use crate::node::{ NodeList, Node };
 use crate::config::Config;
+use crate::storage::Storage;
+use tracing::{ debug, info };
+use tracing_subscriber::fmt::Subscriber;
 
 const CONFIG_FILE: &str = "config.json";
 const NODE_INFO_FILE: &str = "node_info.json";
@@ -63,7 +66,6 @@ async fn fetch_and_update_nodes(node_info_file: &str) -> Result<NodeInfo, Box<dy
 
     // Send a GET request to the discovery service
     let response = client.get(&discovery_service_url).send().await?;
-    println!("Response: {:?}", response);
 
     // Check if the response is successful
     if response.status().is_success() {
@@ -112,6 +114,10 @@ async fn register_with_discovery_service(node: &Node, uuid: String) -> Result<()
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
+    tracing_subscriber::fmt().with_max_level(tracing::Level::DEBUG).init();
+
+    info!("Starting application...");
+
     // Step 1 & 2: Check or create config.json and UUID
     let uuid = check_or_create_uuid().expect("Failed to create or fetch UUID");
 
@@ -128,7 +134,6 @@ async fn main() -> std::io::Result<()> {
         if let Some(existing_node) = node_list_guard.find_node_by_uuid(&uuid) {
             existing_node.clone()
         } else {
-            // Node is not in the list, so we create and register it
             let new_node = Node::new("127.0.0.1:8080"); // Or determine external IP
             register_with_discovery_service(&new_node, uuid.clone()).await.unwrap();
             node_list_guard.add_node(new_node.clone());
@@ -136,10 +141,10 @@ async fn main() -> std::io::Result<()> {
         }
     };
 
-    println!("Node ID: {}", node.id);
-    println!("Public Key: {}", node.public_key);
+    info!("Node ID: {}", node.id);
+    info!("Public Key: {}", node.public_key);
 
-    let storage = storage::Storage::new("database/db");
+    let storage = Arc::new(Mutex::new(Storage::new("database/db")));
 
     // Step 6: Periodically fetch and update nodes every 5 seconds
     let node_list_clone = Arc::clone(&node_list);
@@ -150,19 +155,19 @@ async fn main() -> std::io::Result<()> {
                     let updated_node_list = NodeList::from_nodes(updated_node_info.nodes);
                     let mut node_list_guard = node_list_clone.lock().unwrap();
                     *node_list_guard = updated_node_list;
-                    println!("Node list updated.");
+                    info!("Node list updated.");
                 }
-                Err(e) => eprintln!("Failed to update node list: {}", e),
+                Err(e) => tracing::error!("Failed to update node list: {}", e),
             }
 
-            sleep(Duration::from_secs(5)).await;
+            tokio::time::sleep(Duration::from_secs(5)).await;
         }
     });
 
     HttpServer::new(move || {
         App::new()
             .app_data(actix_web::web::Data::new(Arc::clone(&node_list)))
-            .app_data(actix_web::web::Data::new(storage.clone()))
+            .app_data(actix_web::web::Data::new(Arc::clone(&storage)))
             .configure(api::init_routes)
     })
         .bind(("127.0.0.1", 8080))?

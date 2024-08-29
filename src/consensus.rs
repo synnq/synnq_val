@@ -7,6 +7,8 @@ use anyhow::{ anyhow, Result };
 use futures::future::join_all;
 use tokio::time::{ timeout, Duration };
 use crate::node::Node;
+use std::sync::{ Arc, Mutex };
+use tracing::info;
 
 #[derive(Deserialize)]
 struct VerifyResponse {
@@ -15,20 +17,18 @@ struct VerifyResponse {
 
 pub async fn handle_validation(
     data: Data,
-    node_list: web::Data<NodeList>,
-    storage: web::Data<Storage>
+    node_list: web::Data<Arc<Mutex<NodeList>>>,
+    storage: web::Data<Arc<Mutex<Storage>>>
 ) -> Result<HttpResponse, Error> {
-    let nodes = node_list.get_nodes();
+    let nodes = node_list.lock().unwrap().get_nodes();
     let mut validated_count = 0;
 
-    println!("Starting validation with nodes: {:?}", nodes);
+    println!("Starting validation with nodes: {:#?}", nodes);
 
-    // Broadcast the data to all nodes for validation and collect the results
     let validation_results: Vec<_> = join_all(
         nodes.iter().map(|node| async {
-            // Call validate_data on each node
             let res = timeout(Duration::from_secs(5), validate_data(node, &data.data)).await;
-
+            info!("Validating data from node {}: {:#?}", node.id, res);
             match res {
                 Ok(true) => {
                     println!("Node {} successfully validated the data.", node.id);
@@ -46,14 +46,6 @@ pub async fn handle_validation(
         })
     ).await;
 
-    let bxx = timeout(
-        Duration::from_secs(5),
-        broadcast_to_nodes(nodes.clone().as_slice(), &data.data)
-    ).await;
-
-    println!("BXX: {:?}", bxx);
-
-    // Count the number of successful validations
     for res in validation_results {
         if res.unwrap_or(false) {
             validated_count += 1;
@@ -66,7 +58,6 @@ pub async fn handle_validation(
         nodes.len()
     );
 
-    // Check if the required percentage of nodes have validated the data
     let required_percentage = 0.8;
     if (validated_count as f64) / (nodes.len() as f64) >= required_percentage {
         println!(
@@ -75,16 +66,12 @@ pub async fn handle_validation(
             required_percentage
         );
 
-        // If validation passed, send the data to the external API and handle the response
         if send_to_api(data.clone()).await {
             let storage_key = data.secret.to_string();
-            storage.store_data(&storage_key, &data.data.to_string());
-            println!("Data stored in storage with key: {}", storage_key);
-            // Send data.data to the external API and handle response
+            storage.lock().unwrap().store_data(&storage_key, &data.data.to_string());
+
             match send_transaction_data(&data.data).await {
                 Ok(api_response) => {
-                    println!("Response: {}", api_response);
-                    // Optionally broadcast the final transaction data to all other nodes
                     if let Err(e) = broadcast_to_nodes(&nodes, &data.data).await {
                         eprintln!("Failed to broadcast to nodes: {}", e);
                     }
@@ -106,21 +93,29 @@ pub async fn handle_validation(
 
 async fn send_to_api(data: Data) -> bool {
     let client = Client::new();
-    let response = client.post("http://zkp.synnq.io/verify").json(&data).send().await;
+    let response = client.post("https://zkp.synnq.io/verify").json(&data).send().await;
 
     match response {
         Ok(res) => {
-            if let Ok(verify_response) = res.json::<VerifyResponse>().await {
-                if verify_response.valid {
-                    println!("Data validation successful on external API");
-                    return true;
+            if res.status().is_success() {
+                if let Ok(verify_response) = res.json::<VerifyResponse>().await {
+                    if verify_response.valid {
+                        println!("Data validation successful on external API");
+                        return true;
+                    }
                 }
+            } else {
+                println!("API returned error status: {}", res.status());
+                let error_body = res
+                    .text().await
+                    .unwrap_or_else(|_| "Failed to read response body".to_string());
+                println!("API error body: {}", error_body);
             }
             println!("Data validation failed on external API");
             false
         }
         Err(err) => {
-            eprintln!("Failed to send data to API: {}", err);
+            println!("Failed to send data to API: {}", err);
             false
         }
     }
@@ -138,11 +133,11 @@ async fn send_transaction_data(transaction_data: &serde_json::Value) -> Result<S
 
     if status.is_success() {
         println!("Transaction data successfully sent to https://rest.synnq.io/transaction");
-        println!("Response: {}", body);
+
         Ok(body) // Return the successful response body
     } else {
         eprintln!("Failed to send transaction data. Status: {}", status);
-        eprintln!("Response: {}", body);
+
         Err(anyhow!("Failed to send transaction data. Status: {}. Body: {}", status, body))
     }
 }
@@ -155,8 +150,10 @@ pub async fn broadcast_to_nodes(
 
     let broadcast_results: Vec<_> = join_all(
         nodes.iter().map(|node| async {
-            let url = format!("{}/receive_broadcast", node.address);
+            // Ensure the URL is absolute by prefixing with "http://"
+            let url = format!("http://{}/receive_broadcast", node.address);
             println!("Broadcasting to node {}: {}", node.id, url);
+
             match client.post(&url).json(transaction_data).send().await {
                 Ok(res) if res.status().is_success() => {
                     println!("Broadcast to node {} succeeded.", node.id);

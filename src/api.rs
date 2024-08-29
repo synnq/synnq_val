@@ -7,6 +7,7 @@ use crate::{
     storage::Storage,
 };
 use crate::validation::validate_data;
+use std::sync::{ Arc, Mutex };
 
 #[derive(Deserialize, Serialize, Clone, Debug)]
 pub struct Data {
@@ -26,7 +27,7 @@ pub struct RegisterNodeRequest {
 #[post("/register_node")]
 async fn register_node(
     req: web::Json<RegisterNodeRequest>,
-    node_list: web::Data<NodeList>
+    node_list: web::Data<Arc<Mutex<NodeList>>>
 ) -> impl Responder {
     let node = Node {
         id: req.id.clone(),
@@ -35,38 +36,41 @@ async fn register_node(
         validated: Some(false),
     };
 
-    node_list.add_node(node);
+    node_list.lock().unwrap().add_node(node);
     format!("Node {} registered successfully", req.id)
 }
 
 #[get("/nodes")]
-async fn get_nodes(node_list: web::Data<NodeList>) -> impl Responder {
-    let nodes = node_list.get_nodes();
+async fn get_nodes(node_list: web::Data<Arc<Mutex<NodeList>>>) -> impl Responder {
+    let nodes = node_list.lock().unwrap().get_nodes();
     web::Json(nodes)
 }
 
 #[post("/receive_data")]
 async fn receive_data(
     data: web::Json<Data>,
-    node_list: web::Data<NodeList>,
-    storage: web::Data<Storage>
+    node_list: web::Data<Arc<Mutex<NodeList>>>,
+    storage: web::Data<Arc<Mutex<Storage>>>
 ) -> Result<HttpResponse, Error> {
-    if !validate_data(&node_list.get_nodes()[0], &data.data).await {
+    let node_list_clone = node_list.clone(); // Clone the node_list to avoid moving it
+    let storage_clone = storage.clone(); // Clone the storage to avoid moving it
+
+    if !validate_data(&node_list.lock().unwrap().get_nodes()[0], &data.data).await {
         return Ok(HttpResponse::BadRequest().body("Invalid data structure in `data` field"));
     }
 
-    handle_validation(data.into_inner(), node_list, storage).await
+    handle_validation(data.into_inner(), node_list_clone, storage_clone).await
 }
 
 #[post("/receive_broadcast")]
 async fn receive_broadcast(
     transaction_data: web::Json<Value>,
-    storage: web::Data<Storage>
+    storage: web::Data<Arc<Mutex<Storage>>>
 ) -> impl Responder {
     println!("Received broadcasted transaction data: {:?}", transaction_data);
 
     let storage_key = "broadcasted_transaction";
-    storage.store_data(storage_key, &transaction_data.to_string());
+    storage.lock().unwrap().store_data(storage_key, &transaction_data.to_string());
 
     HttpResponse::Ok().body("Broadcast received successfully")
 }
