@@ -119,17 +119,26 @@ async fn register_with_discovery_service(
         public_key: node.public_key.clone(),
     };
 
-    let response = client.post(&discovery_service_url).json(&request_body).send().await?;
+    let response = client.post(&discovery_service_url).json(&request_body).send().await;
 
-    if response.status().is_success() {
-        println!("Successfully registered with discovery service.");
-    } else {
-        eprintln!("Failed to register with discovery service. Status: {}", response.status());
-        let error_text = response.text().await?;
-        return Err(format!("API error body: {}", error_text).into());
+    match response {
+        Ok(resp) => {
+            let status = resp.status(); // Store the status code before consuming the response
+            if status.is_success() {
+                println!("Successfully registered with discovery service.");
+                Ok(())
+            } else {
+                let error_text = resp.text().await.unwrap_or_else(|_| "Unknown error".to_string());
+                eprintln!("Failed to register with discovery service. Status: {}", status);
+                eprintln!("API error body: {}", error_text);
+                Err(format!("API error: {}", status).into())
+            }
+        }
+        Err(e) => {
+            eprintln!("Failed to connect to discovery service: {}", e);
+            Err(e.into())
+        }
     }
-
-    Ok(())
 }
 
 #[actix_web::main]
