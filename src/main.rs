@@ -6,10 +6,15 @@ mod storage;
 
 use actix_web::{ App, HttpServer };
 use reqwest::Client;
-use serde::{ Serialize, Deserialize };
-use std::fs;
-use std::error::Error;
+use serde::{ Deserialize, Serialize };
+use std::{ fs, error::Error, time::Duration };
 use uuid::Uuid;
+use tokio::time::timeout;
+
+#[derive(Serialize, Deserialize)]
+struct Config {
+    uuid: String,
+}
 
 #[derive(Serialize)]
 struct RegisterNodeRequest {
@@ -53,10 +58,7 @@ async fn fetch_and_update_nodes(node_info_file: &str) -> Result<(), Box<dyn Erro
 
     if response.status().is_success() {
         let nodes: Vec<node::Node> = response.json().await?;
-        let node_info = NodeInfo { nodes: nodes.clone() };
-
-        // Log the nodes fetched from the discovery service
-        println!("Fetched nodes: {:?}", nodes);
+        let node_info = NodeInfo { nodes };
 
         // Save the nodes to node_info.json
         let data = serde_json::to_string_pretty(&node_info)?;
@@ -72,57 +74,54 @@ async fn fetch_and_update_nodes(node_info_file: &str) -> Result<(), Box<dyn Erro
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
+    let config_file = "config.json";
     let node_info_file = "node_info.json";
 
-    // Step 1: Fetch and update nodes from the discovery service
-    if let Err(e) = fetch_and_update_nodes(node_info_file).await {
-        eprintln!("Failed to fetch and update nodes: {}", e);
-    }
-
-    // Step 2: Load the current node information from the file
-    let node_list = if let Ok(contents) = fs::read_to_string(node_info_file) {
-        match serde_json::from_str::<NodeInfo>(&contents) {
-            Ok(node_info) => {
-                let mut node_list = node::NodeList::new();
-                for node in node_info.nodes {
-                    node_list.add_node(node);
-                }
-                node_list
-            }
+    // Step 2: Check if config.json has a UUID
+    let uuid = if let Ok(contents) = fs::read_to_string(config_file) {
+        match serde_json::from_str::<Config>(&contents) {
+            Ok(config) => config.uuid,
             Err(_) => {
-                eprintln!("Failed to parse node info. Creating a new node list.");
-                node::NodeList::new()
+                eprintln!("Failed to parse config.json. Generating new UUID.");
+                let new_uuid = Uuid::new_v4().to_string();
+                let new_config = Config { uuid: new_uuid.clone() };
+                fs::write(config_file, serde_json::to_string_pretty(&new_config)?)?;
+                new_uuid
             }
         }
     } else {
-        eprintln!("Failed to read node info file. Creating a new node list.");
-        node::NodeList::new()
+        eprintln!("config.json not found. Generating new UUID.");
+        let new_uuid = Uuid::new_v4().to_string();
+        let new_config = Config { uuid: new_uuid.clone() };
+        fs::write(config_file, serde_json::to_string_pretty(&new_config)?)?;
+        new_uuid
     };
 
-    // Create a new node and save it if needed
-    let node = if node_list.get_nodes().is_empty() {
-        let new_node = node::Node::new("127.0.0.1:8080");
-        new_node.save_to_file(node_info_file);
-        node_list.add_node(new_node.clone());
-        new_node
+    // Step 2.2: Register or verify node with the discovery service
+    let mut node_list = node::NodeList::new();
+    fetch_and_update_nodes(node_info_file).await.ok();
+
+    let node = if let Some(existing_node) = node_list.find_node_by_uuid(&uuid) {
+        existing_node
     } else {
-        node_list.get_nodes()[0].clone()
+        eprintln!("Node with UUID {} not found. Registering new node.", uuid);
+        let new_node = node::Node::new("127.0.0.1:8080"); // Replace with the actual IP
+        register_with_discovery_service(&new_node).await.ok();
+        fetch_and_update_nodes(node_info_file).await.ok();
+        new_node
     };
 
     println!("Node ID: {}", node.id);
     println!("Public Key: {}", node.public_key);
 
-    // Register the node with the discovery service
-    if let Err(e) = register_with_discovery_service(&node).await {
-        eprintln!("Error during registration: {}", e);
-    }
+    node_list.add_node(node.clone());
 
     let storage = storage::Storage::new("database/db");
 
     HttpServer::new(move || {
         App::new()
             .app_data(actix_web::web::Data::new(node_list.clone()))
-            .app_data(actix_web::web::Data::new(storage.clone())) // Pass the shared storage instance
+            .app_data(actix_web::web::Data::new(storage.clone()))
             .configure(api::init_routes)
     })
         .bind(("127.0.0.1", 8080))?

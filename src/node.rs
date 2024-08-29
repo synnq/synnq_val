@@ -40,6 +40,10 @@ impl NodeList {
             node.validated = Some(validated); // Wrap the boolean value in `Some`
         }
     }
+
+    pub fn find_node_by_uuid(&self, uuid: &str) -> Option<Node> {
+        self.nodes.lock().unwrap().get(uuid).cloned()
+    }
 }
 
 impl Node {

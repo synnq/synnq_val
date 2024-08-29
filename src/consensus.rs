@@ -6,6 +6,7 @@ use serde::Deserialize;
 use anyhow::{ anyhow, Result };
 use crate::node::Node;
 use futures::future::join_all;
+use tokio::time::{ timeout, Duration };
 
 #[derive(Deserialize)]
 struct VerifyResponse {
@@ -18,40 +19,49 @@ pub async fn handle_validation(
     storage: web::Data<Storage>
 ) -> Result<HttpResponse, Error> {
     let nodes = node_list.get_nodes();
+    let mut validated_count = 0;
+
     println!("Starting validation with nodes: {:?}", nodes);
 
-    // Validate data with all nodes concurrently and collect results
     let validation_results: Vec<_> = join_all(
         nodes.iter().map(|node| async {
-            match validate_data(node, &data.data).await {
-                true => {
+            let res = timeout(Duration::from_secs(5), validate_data(node, &data.data)).await;
+            match res {
+                Ok(true) => {
                     println!("Node {} successfully validated the data.", node.id);
-                    node_list.update_validation(&node.id, true);
                     Some(true)
                 }
-                false => {
-                    println!("Node {} failed to validate the data.", node.id);
+                Ok(false) => {
+                    eprintln!("Node {} failed to validate the data.", node.id);
+                    Some(false)
+                }
+                Err(_) => {
+                    eprintln!("Node {} did not respond in time.", node.id);
                     None
                 }
             }
         })
     ).await;
 
-    // Calculate the percentage of successful validations
-    let validated_count = validation_results
-        .iter()
-        .filter(|&&res| res.is_some())
-        .count();
+    for res in validation_results {
+        if res.unwrap_or(false) {
+            validated_count += 1;
+        }
+    }
+
+    println!(
+        "Validation passed: {} out of {} nodes successfully validated the data.",
+        validated_count,
+        nodes.len()
+    );
+
     let required_percentage = 0.8;
-    let validation_passed = (validated_count as f64) / (nodes.len() as f64) >= required_percentage;
-
-    if validation_passed {
+    if (validated_count as f64) / (nodes.len() as f64) >= required_percentage {
         println!(
-            "Validation passed: {} out of {} nodes successfully validated the data.",
+            "Validated Count {} >= Required Percentage {}",
             validated_count,
-            nodes.len()
+            required_percentage
         );
-
         if send_to_api(data.clone()).await {
             let storage_key = data.secret.to_string();
             storage.store_data(&storage_key, &data.data.to_string());
@@ -75,11 +85,6 @@ pub async fn handle_validation(
             Ok(HttpResponse::BadRequest().body("Data validation failed on external API"))
         }
     } else {
-        println!(
-            "Validation failed: only {} out of {} nodes successfully validated the data.",
-            validated_count,
-            nodes.len()
-        );
         Ok(HttpResponse::BadRequest().body("Insufficient nodes validated the data"))
     }
 }
