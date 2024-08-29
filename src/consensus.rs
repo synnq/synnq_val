@@ -7,7 +7,9 @@ use anyhow::{ anyhow, Result };
 use futures::future::join_all;
 use tokio::time::{ timeout, Duration };
 use crate::node::Node;
-use std::sync::{ Arc, Mutex };
+use std::sync::Arc;
+use tokio::sync::Mutex;
+use tokio::time::sleep;
 use tracing::info;
 
 #[derive(Deserialize)]
@@ -20,7 +22,10 @@ pub async fn handle_validation(
     node_list: web::Data<Arc<Mutex<NodeList>>>,
     storage: web::Data<Arc<Mutex<Storage>>>
 ) -> Result<HttpResponse, Error> {
-    let nodes = node_list.lock().unwrap().get_nodes();
+    let nodes = {
+        let node_list = node_list.lock().await;
+        node_list.get_nodes().clone()
+    };
     let mut validated_count = 0;
 
     println!("Starting validation with nodes: {:#?}", nodes);
@@ -68,7 +73,7 @@ pub async fn handle_validation(
 
         if send_to_api(data.clone()).await {
             let storage_key = data.secret.to_string();
-            storage.lock().unwrap().store_data(&storage_key, &data.data.to_string());
+            storage.lock().await.store_data(&storage_key, &data.data.to_string());
 
             match send_transaction_data(&data.data).await {
                 Ok(api_response) => {
@@ -93,32 +98,37 @@ pub async fn handle_validation(
 
 async fn send_to_api(data: Data) -> bool {
     let client = Client::new();
-    let response = client.post("https://zkp.synnq.io/verify").json(&data).send().await;
+    let mut attempts = 3;
+    let mut delay = Duration::from_secs(1);
 
-    match response {
-        Ok(res) => {
-            if res.status().is_success() {
-                if let Ok(verify_response) = res.json::<VerifyResponse>().await {
-                    if verify_response.valid {
-                        println!("Data validation successful on external API");
-                        return true;
-                    }
+    while attempts > 0 {
+        let response = client.post("https://zkp.synnq.io/verify").json(&data).send().await;
+
+        match response {
+            Ok(res) => {
+                if res.status().is_success() {
+                    println!("Data validation successful on external API");
+                    return true;
+                } else {
+                    eprintln!("API returned error status: {}", res.status());
+                    let error_body = res
+                        .text().await
+                        .unwrap_or_else(|_| "Unable to read error body".to_string());
+                    eprintln!("API error body: {}", error_body);
                 }
-            } else {
-                println!("API returned error status: {}", res.status());
-                let error_body = res
-                    .text().await
-                    .unwrap_or_else(|_| "Failed to read response body".to_string());
-                println!("API error body: {}", error_body);
             }
-            println!("Data validation failed on external API");
-            false
+            Err(err) => {
+                eprintln!("Failed to send data to API: {}", err);
+            }
         }
-        Err(err) => {
-            println!("Failed to send data to API: {}", err);
-            false
-        }
+
+        attempts -= 1;
+        sleep(delay).await;
+        delay *= 2;
     }
+
+    println!("Data validation failed on external API after retries");
+    false
 }
 
 async fn send_transaction_data(transaction_data: &serde_json::Value) -> Result<String> {

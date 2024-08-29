@@ -1,13 +1,10 @@
 use actix_web::{ web, Responder, post, get, HttpResponse, Error };
 use serde::{ Deserialize, Serialize };
 use serde_json::Value;
-use crate::{
-    node::{ Node, NodeList },
-    consensus::{ handle_validation, broadcast_to_nodes },
-    storage::Storage,
-};
+use crate::{ node::{ Node, NodeList }, consensus::handle_validation, storage::Storage };
 use crate::validation::validate_data;
-use std::sync::{ Arc, Mutex };
+use std::sync::Arc;
+use tokio::sync::Mutex;
 
 #[derive(Deserialize, Serialize, Clone, Debug)]
 pub struct Data {
@@ -29,6 +26,8 @@ async fn register_node(
     req: web::Json<RegisterNodeRequest>,
     node_list: web::Data<Arc<Mutex<NodeList>>>
 ) -> impl Responder {
+    let mut node_list = node_list.lock().await;
+
     let node = Node {
         id: req.id.clone(),
         address: req.address.clone(),
@@ -36,13 +35,14 @@ async fn register_node(
         validated: Some(false),
     };
 
-    node_list.lock().unwrap().add_node(node);
+    node_list.add_node(node);
     format!("Node {} registered successfully", req.id)
 }
 
 #[get("/nodes")]
 async fn get_nodes(node_list: web::Data<Arc<Mutex<NodeList>>>) -> impl Responder {
-    let nodes = node_list.lock().unwrap().get_nodes();
+    let node_list = node_list.lock().await;
+    let nodes = node_list.get_nodes();
     web::Json(nodes)
 }
 
@@ -52,14 +52,19 @@ async fn receive_data(
     node_list: web::Data<Arc<Mutex<NodeList>>>,
     storage: web::Data<Arc<Mutex<Storage>>>
 ) -> Result<HttpResponse, Error> {
-    let node_list_clone = node_list.clone(); // Clone the node_list to avoid moving it
-    let storage_clone = storage.clone(); // Clone the storage to avoid moving it
+    // Avoid holding the lock across async boundaries
+    let nodes = {
+        let node_list = node_list.lock().await;
+        node_list.get_nodes().clone()
+    };
 
-    if !validate_data(&node_list.lock().unwrap().get_nodes()[0], &data.data).await {
+    // Validate the data using the first node
+    if !validate_data(&nodes[0], &data.data).await {
         return Ok(HttpResponse::BadRequest().body("Invalid data structure in `data` field"));
     }
 
-    handle_validation(data.into_inner(), node_list_clone, storage_clone).await
+    // Perform validation and broadcast
+    handle_validation(data.into_inner(), node_list.clone(), storage.clone()).await
 }
 
 #[post("/receive_broadcast")]
@@ -70,7 +75,11 @@ async fn receive_broadcast(
     println!("Received broadcasted transaction data: {:?}", transaction_data);
 
     let storage_key = "broadcasted_transaction";
-    storage.lock().unwrap().store_data(storage_key, &transaction_data.to_string());
+
+    {
+        let mut storage = storage.lock().await;
+        storage.store_data(storage_key, &transaction_data.to_string());
+    }
 
     HttpResponse::Ok().body("Broadcast received successfully")
 }
