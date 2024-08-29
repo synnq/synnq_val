@@ -23,9 +23,10 @@ pub async fn handle_validation(
 
     println!("Starting validation with nodes: {:?}", nodes);
 
+    // Broadcast the data to all nodes for validation and collect the results
     let validation_results: Vec<_> = join_all(
         nodes.iter().map(|node| async {
-            let url = format!("{}/receive_broadcast", node.address);
+            // Call validate_data on each node
             let res = timeout(Duration::from_secs(5), validate_data(node, &data.data)).await;
 
             match res {
@@ -45,6 +46,14 @@ pub async fn handle_validation(
         })
     ).await;
 
+    let bxx = timeout(
+        Duration::from_secs(5),
+        broadcast_to_nodes(nodes.clone().as_slice(), &data.data)
+    ).await;
+
+    println!("BXX: {:?}", bxx);
+
+    // Count the number of successful validations
     for res in validation_results {
         if res.unwrap_or(false) {
             validated_count += 1;
@@ -70,10 +79,11 @@ pub async fn handle_validation(
         if send_to_api(data.clone()).await {
             let storage_key = data.secret.to_string();
             storage.store_data(&storage_key, &data.data.to_string());
-
+            println!("Data stored in storage with key: {}", storage_key);
             // Send data.data to the external API and handle response
             match send_transaction_data(&data.data).await {
                 Ok(api_response) => {
+                    println!("Response: {}", api_response);
                     // Optionally broadcast the final transaction data to all other nodes
                     if let Err(e) = broadcast_to_nodes(&nodes, &data.data).await {
                         eprintln!("Failed to broadcast to nodes: {}", e);
@@ -137,12 +147,16 @@ async fn send_transaction_data(transaction_data: &serde_json::Value) -> Result<S
     }
 }
 
-async fn broadcast_to_nodes(nodes: &[Node], transaction_data: &serde_json::Value) -> Result<()> {
+pub async fn broadcast_to_nodes(
+    nodes: &[Node],
+    transaction_data: &serde_json::Value
+) -> Result<()> {
     let client = Client::new();
 
     let broadcast_results: Vec<_> = join_all(
         nodes.iter().map(|node| async {
             let url = format!("{}/receive_broadcast", node.address);
+            println!("Broadcasting to node {}: {}", node.id, url);
             match client.post(&url).json(transaction_data).send().await {
                 Ok(res) if res.status().is_success() => {
                     println!("Broadcast to node {} succeeded.", node.id);
