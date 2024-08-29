@@ -27,6 +27,14 @@ impl NodeList {
         }
     }
 
+    pub fn from_nodes(nodes: Vec<Node>) -> Self {
+        let mut node_list = NodeList::new();
+        for node in nodes {
+            node_list.add_node(node);
+        }
+        node_list
+    }
+
     pub fn add_node(&self, node: Node) {
         self.nodes.lock().unwrap().insert(node.id.clone(), node);
     }
@@ -35,14 +43,14 @@ impl NodeList {
         self.nodes.lock().unwrap().values().cloned().collect()
     }
 
-    pub fn update_validation(&self, node_id: &str, validated: bool) {
-        if let Some(node) = self.nodes.lock().unwrap().get_mut(node_id) {
-            node.validated = Some(validated); // Wrap the boolean value in `Some`
-        }
-    }
-
     pub fn find_node_by_uuid(&self, uuid: &str) -> Option<Node> {
         self.nodes.lock().unwrap().get(uuid).cloned()
+    }
+
+    pub fn update_validation(&self, node_id: &str, validated: bool) {
+        if let Some(node) = self.nodes.lock().unwrap().get_mut(node_id) {
+            node.validated = Some(validated);
+        }
     }
 }
 

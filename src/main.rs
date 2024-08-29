@@ -3,18 +3,19 @@ mod api;
 mod validation;
 mod consensus;
 mod storage;
+mod config;
 
 use actix_web::{ App, HttpServer };
 use reqwest::Client;
 use serde::{ Deserialize, Serialize };
-use std::{ fs, error::Error, time::Duration };
+use std::fs;
+use std::error::Error;
+use crate::node::{ NodeList, Node };
+use std::io::{ self, Write };
 use uuid::Uuid;
-use tokio::time::timeout;
+use config::Config;
 
-#[derive(Serialize, Deserialize)]
-struct Config {
-    uuid: String,
-}
+const CONFIG_FILE: &str = "config.json";
 
 #[derive(Serialize)]
 struct RegisterNodeRequest {
@@ -25,10 +26,11 @@ struct RegisterNodeRequest {
 
 #[derive(Serialize, Deserialize)]
 struct NodeInfo {
-    nodes: Vec<node::Node>,
+    nodes: Vec<Node>,
 }
 
-async fn register_with_discovery_service(node: &node::Node) -> Result<(), Box<dyn Error>> {
+// Register with the discovery service
+async fn register_with_discovery_service(node: &Node) -> Result<(), Box<dyn Error>> {
     let client = Client::new();
     let discovery_service_url = "https://synnq-discovery-f77aaphiwa-uc.a.run.app/register_node";
 
@@ -49,7 +51,8 @@ async fn register_with_discovery_service(node: &node::Node) -> Result<(), Box<dy
     Ok(())
 }
 
-async fn fetch_and_update_nodes(node_info_file: &str) -> Result<(), Box<dyn Error>> {
+// Fetch and update nodes from discovery service
+async fn fetch_and_update_nodes(node_info_file: &str) -> Result<NodeInfo, Box<dyn Error>> {
     let client = Client::new();
     let discovery_service_url = "https://synnq-discovery-f77aaphiwa-uc.a.run.app/nodes";
 
@@ -57,7 +60,7 @@ async fn fetch_and_update_nodes(node_info_file: &str) -> Result<(), Box<dyn Erro
     println!("Response: {:?}", response);
 
     if response.status().is_success() {
-        let nodes: Vec<node::Node> = response.json().await?;
+        let nodes: Vec<Node> = response.json().await?;
         let node_info = NodeInfo { nodes };
 
         // Save the nodes to node_info.json
@@ -65,56 +68,62 @@ async fn fetch_and_update_nodes(node_info_file: &str) -> Result<(), Box<dyn Erro
         fs::write(node_info_file, data)?;
 
         println!("Node information updated successfully.");
+        Ok(node_info)
     } else {
         eprintln!("Failed to fetch nodes from discovery service. Status: {}", response.status());
+        Err(Box::new(response.error_for_status().unwrap_err()))
+    }
+}
+
+fn check_or_create_uuid() -> io::Result<String> {
+    // Check if the config file exists
+    if let Ok(config_data) = fs::read_to_string(CONFIG_FILE) {
+        // Try to deserialize the config file to get the UUID
+        if let Ok(config) = serde_json::from_str::<Config>(&config_data) {
+            return Ok(config.uuid);
+        }
     }
 
-    Ok(())
+    // If the file does not exist or deserialization failed, create a new UUID
+    let new_uuid = Uuid::new_v4().to_string();
+
+    // Create a new config object with the UUID
+    let new_config = Config { uuid: new_uuid.clone() };
+
+    // Serialize and save it to the config file
+    let config_json = serde_json::to_string_pretty(&new_config)?;
+    let mut file = fs::File::create(CONFIG_FILE)?;
+    file.write_all(config_json.as_bytes())?;
+
+    Ok(new_uuid)
 }
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    let config_file = "config.json";
     let node_info_file = "node_info.json";
 
-    // Step 2: Check if config.json has a UUID
-    let uuid = if let Ok(contents) = fs::read_to_string(config_file) {
-        match serde_json::from_str::<Config>(&contents) {
-            Ok(config) => config.uuid,
-            Err(_) => {
-                eprintln!("Failed to parse config.json. Generating new UUID.");
-                let new_uuid = Uuid::new_v4().to_string();
-                let new_config = Config { uuid: new_uuid.clone() };
-                fs::write(config_file, serde_json::to_string_pretty(&new_config)?)?;
-                new_uuid
-            }
-        }
-    } else {
-        eprintln!("config.json not found. Generating new UUID.");
-        let new_uuid = Uuid::new_v4().to_string();
-        let new_config = Config { uuid: new_uuid.clone() };
-        fs::write(config_file, serde_json::to_string_pretty(&new_config)?)?;
-        new_uuid
-    };
+    // Fetch and update nodes from the discovery service
+    let node_info = fetch_and_update_nodes(node_info_file).await.unwrap_or_else(|_| NodeInfo {
+        nodes: vec![],
+    });
 
-    // Step 2.2: Register or verify node with the discovery service
-    let mut node_list = node::NodeList::new();
-    fetch_and_update_nodes(node_info_file).await.ok();
+    // Load the current node information from the file
+    let node_list = NodeList::from_nodes(node_info.nodes);
+
+    // Check for UUID in config and handle registration if needed
+    let uuid = check_or_create_uuid().unwrap(); // Assuming this function is implemented
 
     let node = if let Some(existing_node) = node_list.find_node_by_uuid(&uuid) {
         existing_node
     } else {
-        eprintln!("Node with UUID {} not found. Registering new node.", uuid);
-        let new_node = node::Node::new("127.0.0.1:8080");
-        register_with_discovery_service(&new_node).await.ok();
-        fetch_and_update_nodes(node_info_file).await.ok();
+        let new_node = Node::new("127.0.0.1:8080"); // Or get the external IP as before
+        register_with_discovery_service(&new_node).await.unwrap();
+        node_list.add_node(new_node.clone());
         new_node
     };
 
     println!("Node ID: {}", node.id);
     println!("Public Key: {}", node.public_key);
-
-    node_list.add_node(node.clone());
 
     let storage = storage::Storage::new("database/db");
 

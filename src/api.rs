@@ -6,18 +6,17 @@ use crate::validation::validate_data;
 
 #[derive(Deserialize, Serialize, Clone, Debug)]
 pub struct Data {
-    pub secret: u64, // secret is a number (integer)
-    pub proof: Vec<u8>, // proof is a vector of unsigned 8-bit integers
-    pub blinding: String, // blinding is a hexadecimal string
-    pub data: Value, // data is a JSON object, using serde_json::Value
+    pub secret: u64,
+    pub proof: Vec<u8>,
+    pub blinding: String,
+    pub data: Value,
 }
 
-// Struct for node registration request
 #[derive(Deserialize, Serialize, Clone, Debug)]
 pub struct RegisterNodeRequest {
     pub id: String,
     pub address: String,
-    pub public_key: String, // Add the public_key field here
+    pub public_key: String,
 }
 
 #[post("/register_node")]
@@ -29,7 +28,7 @@ async fn register_node(
         id: req.id.clone(),
         address: req.address.clone(),
         public_key: req.public_key.clone(),
-        validated: Some(false), // Corrected line
+        validated: Some(false),
     };
 
     node_list.add_node(node);
@@ -48,12 +47,10 @@ async fn receive_data(
     node_list: web::Data<NodeList>,
     storage: web::Data<Storage>
 ) -> Result<HttpResponse, Error> {
-    // Validate the `data` field within the Data struct
     if !validate_data(&node_list.get_nodes()[0], &data.data).await {
         return Ok(HttpResponse::BadRequest().body("Invalid data structure in `data` field"));
     }
 
-    // If validation passes, proceed with handling validation
     handle_validation(data.into_inner(), node_list, storage).await
 }
 
@@ -62,13 +59,9 @@ async fn receive_broadcast(
     transaction_data: web::Json<Value>,
     storage: web::Data<Storage>
 ) -> impl Responder {
-    // Here you can handle the broadcasted transaction data
-    // For example, store it in your storage or validate it further
-
     println!("Received broadcasted transaction data: {:?}", transaction_data);
 
-    // Store the broadcasted transaction data
-    let storage_key = "broadcasted_transaction"; // You can use a more specific key if needed
+    let storage_key = "broadcasted_transaction";
     storage.store_data(storage_key, &transaction_data.to_string());
 
     HttpResponse::Ok().body("Broadcast received successfully")

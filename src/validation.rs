@@ -1,6 +1,5 @@
 use crate::node::Node;
 use serde::{ Deserialize, Serialize };
-
 use serde_json::{ Value, from_value };
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
@@ -34,12 +33,9 @@ pub struct Meta {
     pub value: String,
 }
 
-// The validation function
 pub async fn validate_data(_node: &Node, data: &Value) -> bool {
-    // Attempt to deserialize the `data` field into the `TransactionData` struct
     match from_value::<TransactionData>(data.clone()) {
         Ok(transaction) => {
-            // Perform content validation
             if transaction.transaction_type.is_empty() {
                 eprintln!("Transaction type is empty");
                 return false;
@@ -60,9 +56,6 @@ pub async fn validate_data(_node: &Node, data: &Value) -> bool {
                 return false;
             }
 
-            // Add more checks as needed...
-
-            // If all checks pass
             true
         }
         Err(e) => {

@@ -23,7 +23,6 @@ pub async fn handle_validation(
 
     println!("Starting validation with nodes: {:?}", nodes);
 
-    // Broadcast the data to all nodes for validation
     let validation_results: Vec<_> = join_all(
         nodes.iter().map(|node| async {
             let url = format!("{}/receive_broadcast", node.address);
@@ -46,7 +45,6 @@ pub async fn handle_validation(
         })
     ).await;
 
-    // Count the number of successful validations
     for res in validation_results {
         if res.unwrap_or(false) {
             validated_count += 1;
