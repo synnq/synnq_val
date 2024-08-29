@@ -23,8 +23,8 @@ use tracing_subscriber::fmt::Subscriber;
 
 const CONFIG_FILE: &str = "config.json";
 const NODE_INFO_FILE: &str = "node_info.json";
-// const DISCOVERY_SERVICE_URL: &str = "https://synnq-discovery-f77aaphiwa-uc.a.run.app";
-const DISCOVERY_SERVICE_URL: &str = "http://127.0.0.1:3000";
+const DISCOVERY_SERVICE_URL: &str = "https://synnq-discovery-f77aaphiwa-uc.a.run.app";
+// const DISCOVERY_SERVICE_URL: &str = "http://127.0.0.1:8080";
 
 #[derive(Serialize)]
 struct RegisterNodeRequest {
