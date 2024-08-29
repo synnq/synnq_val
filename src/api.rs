@@ -57,8 +57,26 @@ async fn receive_data(
     handle_validation(data.into_inner(), node_list, storage).await
 }
 
+#[post("/receive_broadcast")]
+async fn receive_broadcast(
+    transaction_data: web::Json<Value>,
+    storage: web::Data<Storage>
+) -> impl Responder {
+    // Here you can handle the broadcasted transaction data
+    // For example, store it in your storage or validate it further
+
+    println!("Received broadcasted transaction data: {:?}", transaction_data);
+
+    // Store the broadcasted transaction data
+    let storage_key = "broadcasted_transaction"; // You can use a more specific key if needed
+    storage.store_data(storage_key, &transaction_data.to_string());
+
+    HttpResponse::Ok().body("Broadcast received successfully")
+}
+
 pub fn init_routes(cfg: &mut web::ServiceConfig) {
     cfg.service(register_node);
     cfg.service(get_nodes);
     cfg.service(receive_data);
+    cfg.service(receive_broadcast);
 }

@@ -1,6 +1,9 @@
-private_key.pem
-*.json
-
 /target/
 /database/
 
+.DS_Store
+.idea/
+*.iml
+*.pem
+*.zip
+*.json
