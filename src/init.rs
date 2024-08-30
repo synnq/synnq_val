@@ -2,15 +2,10 @@ use reqwest::Client;
 use serde::{ Deserialize, Serialize };
 use std::fs;
 use std::error::Error;
-use uuid::Uuid;
-use tokio::time::Duration;
-use std::net::SocketAddr;
 use crate::node::node::Node;
-use crate::config::Config;
 use tracing::info;
 use anyhow::{ anyhow, Result };
 
-const CONFIG_FILE: &str = "config.json";
 const DISCOVERY_SERVICE_URL: &str = "https://synnq-discovery-f77aaphiwa-uc.a.run.app";
 
 #[derive(Serialize)]
@@ -25,43 +20,7 @@ pub struct NodeInfo {
     pub nodes: Vec<Node>,
 }
 
-// Check if config.json exists, and create if not. Check or create UUID.
-pub fn check_or_create_uuid() -> std::io::Result<Config> {
-    if let Ok(config_data) = fs::read_to_string(CONFIG_FILE) {
-        if let Ok(config) = serde_json::from_str::<Config>(&config_data) {
-            return Ok(config);
-        }
-    }
-
-    let new_uuid = Uuid::new_v4().to_string();
-
-    println!("Enter the node's address (e.g., 127.0.0.1:8080): ");
-    let input_address = read_address_from_user()?;
-
-    let new_config = Config {
-        uuid: new_uuid,
-        address: input_address,
-    };
-
-    let config_json = serde_json::to_string_pretty(&new_config)?;
-    fs::write(CONFIG_FILE, config_json)?;
-
-    Ok(new_config)
-}
-
-fn read_address_from_user() -> std::io::Result<String> {
-    let mut input_address = String::new();
-    std::io::stdin().read_line(&mut input_address)?;
-    let input_address = input_address.trim().to_string();
-
-    if input_address.parse::<SocketAddr>().is_err() {
-        eprintln!("Invalid address format: {}", input_address);
-        return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "Invalid address format"));
-    }
-
-    Ok(input_address)
-}
-
+// Function to resolve the address
 pub async fn resolve_address(address: &str) -> Result<(), Box<dyn Error + Send + Sync>> {
     for attempt in 1..=5 {
         match reqwest::get(address).await {
@@ -71,7 +30,7 @@ pub async fn resolve_address(address: &str) -> Result<(), Box<dyn Error + Send +
             }
             Err(e) => {
                 eprintln!("Error resolving address (attempt {}): {:?}", attempt, e);
-                tokio::time::sleep(Duration::from_secs(5 * attempt)).await; // Exponential backoff
+                tokio::time::sleep(tokio::time::Duration::from_secs(5 * attempt)).await;
             }
         }
     }
@@ -86,7 +45,7 @@ pub async fn resolve_address(address: &str) -> Result<(), Box<dyn Error + Send +
     )
 }
 
-// Fetch and update nodes from the discovery service
+// Function to fetch and update nodes
 pub async fn fetch_and_update_nodes(
     node_info_file: &str
 ) -> Result<NodeInfo, Box<dyn Error + Send + Sync>> {
@@ -111,7 +70,7 @@ pub async fn fetch_and_update_nodes(
     }
 }
 
-// Register with the discovery service
+// Function to register with the discovery service
 pub async fn register_with_discovery_service(
     node: &Node,
     uuid: String,
@@ -129,7 +88,7 @@ pub async fn register_with_discovery_service(
 
     let response = client.post(&discovery_service_url).json(&request_body).send().await?;
 
-    let status = response.status(); // Capture the status code before consuming the response
+    let status = response.status();
 
     if status.is_success() {
         println!("Successfully registered with discovery service.");

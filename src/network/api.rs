@@ -26,7 +26,7 @@ async fn register_node(
     req: web::Json<RegisterNodeRequest>,
     node_list: web::Data<Arc<Mutex<NodeList>>>
 ) -> impl Responder {
-    let mut node_list = node_list.lock().await;
+    let node_list = node_list.lock().await;
 
     let node = Node {
         id: req.id.clone(),
@@ -77,7 +77,7 @@ async fn receive_broadcast(
     let storage_key = "broadcasted_transaction";
 
     {
-        let mut storage = storage.lock().await;
+        let storage = storage.lock().await;
         storage.store_data(storage_key, &transaction_data.to_string());
     }
 

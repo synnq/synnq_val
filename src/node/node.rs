@@ -28,7 +28,7 @@ impl NodeList {
     }
 
     pub fn from_nodes(nodes: Vec<Node>) -> Self {
-        let mut node_list = NodeList::new();
+        let node_list = NodeList::new();
         for node in nodes {
             node_list.add_node(node);
         }
@@ -45,12 +45,6 @@ impl NodeList {
 
     pub fn find_node_by_uuid(&self, uuid: &str) -> Option<Node> {
         self.nodes.lock().unwrap().get(uuid).cloned()
-    }
-
-    pub fn update_validation(&self, node_id: &str, validated: bool) {
-        if let Some(node) = self.nodes.lock().unwrap().get_mut(node_id) {
-            node.validated = Some(validated);
-        }
     }
 }
 
@@ -80,15 +74,5 @@ impl Node {
             public_key: public_key_pem, // No need for into_inner(), already a String
             validated: Some(false),
         }
-    }
-
-    pub fn load_from_file(filename: &str) -> Option<Self> {
-        let data = fs::read_to_string(filename).ok()?;
-        serde_json::from_str(&data).ok()
-    }
-
-    pub fn save_to_file(&self, filename: &str) {
-        let data = serde_json::to_string(self).expect("unable to serialize node");
-        fs::write(filename, data).expect("unable to write node data to file");
     }
 }

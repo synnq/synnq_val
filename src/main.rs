@@ -15,7 +15,6 @@ use crate::node::node::{ NodeList, Node };
 use crate::config::Config;
 use crate::init::{
     NodeInfo,
-    check_or_create_uuid,
     resolve_address,
     fetch_and_update_nodes,
     register_with_discovery_service,
@@ -50,7 +49,7 @@ async fn main() -> std::io::Result<()> {
     let node_list = Arc::new(Mutex::new(NodeList::from_nodes(node_info.nodes)));
 
     let node = {
-        let mut node_list_guard = node_list.lock().await;
+        let node_list_guard = node_list.lock().await;
         if let Some(existing_node) = node_list_guard.find_node_by_uuid(&config.uuid) {
             existing_node.clone()
         } else {

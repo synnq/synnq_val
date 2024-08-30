@@ -2,7 +2,6 @@ use crate::{ node::node::NodeList, validation::validate_data, storage::Storage }
 use crate::network::api::Data;
 use actix_web::{ web, HttpResponse, Error };
 use reqwest::Client;
-use serde::Deserialize;
 use anyhow::{ anyhow, Result };
 use futures::future::join_all;
 use tokio::time::{ timeout, Duration };
@@ -11,12 +10,6 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio::time::sleep;
 use tracing::info;
-use std::net::SocketAddr;
-
-#[derive(Deserialize)]
-struct VerifyResponse {
-    valid: bool,
-}
 
 pub async fn handle_validation(
     data: Data,
@@ -103,21 +96,27 @@ async fn send_to_api(data: Data) -> bool {
     let mut delay = Duration::from_secs(1);
 
     while attempts > 0 {
-        let response = client.post("https://zkp.synnq.io/verify").json(&data.data).send().await;
+        // Log the exact payload being sent
+        println!("Sending data to API: {:?}", data);
+
+        let response = client.post("https://zkp.synnq.io/verify").json(&data).send().await;
 
         match response {
             Ok(res) => {
-                if res.status().is_success() {
+                let status = res.status();
+                let error_body = res
+                    .text().await
+                    .unwrap_or_else(|_| "Unable to read error body".to_string());
+
+                if status.is_success() {
                     println!("Data validation successful on external API");
                     return true;
-                } else if res.status() == 422 {
+                } else if status == 422 {
                     eprintln!("Unprocessable Entity: Check the request body for errors.");
+                    eprintln!("Response Body: {}", error_body);
                     return false; // No need to retry if it's a 422 error
                 } else {
-                    eprintln!("API returned error status: {}", res.status());
-                    let error_body = res
-                        .text().await
-                        .unwrap_or_else(|_| "Unable to read error body".to_string());
+                    eprintln!("API returned error status: {}", status);
                     eprintln!("API error body: {}", error_body);
                 }
             }
@@ -139,7 +138,7 @@ async fn send_transaction_data(transaction_data: &serde_json::Value) -> Result<S
     let client = Client::new();
     let response = client
         .post("https://rest.synnq.io/transaction")
-        .json(transaction_data) // Send the transaction data as JSON
+        .json(transaction_data)
         .send().await?;
 
     let status = response.status();
@@ -147,19 +146,14 @@ async fn send_transaction_data(transaction_data: &serde_json::Value) -> Result<S
 
     if status.is_success() {
         println!("Transaction data successfully sent to https://rest.synnq.io/transaction");
-
-        Ok(body) // Return the successful response body
+        Ok(body)
     } else {
         eprintln!("Failed to send transaction data. Status: {}", status);
-
         Err(anyhow!("Failed to send transaction data. Status: {}. Body: {}", status, body))
     }
 }
 
-pub async fn broadcast_to_nodes(
-    nodes: &[Node],
-    transaction_data: &serde_json::Value
-) -> Result<()> {
+async fn broadcast_to_nodes(nodes: &[Node], transaction_data: &serde_json::Value) -> Result<()> {
     let client = Client::new();
 
     let broadcast_results: Vec<_> = join_all(
@@ -168,10 +162,11 @@ pub async fn broadcast_to_nodes(
                 node.address.starts_with("http://") ||
                 node.address.starts_with("https://")
             {
-                node.address.clone()
+                format!("{}/receive_broadcast", node.address.trim_end_matches('/'))
             } else {
                 format!("http://{}/receive_broadcast", node.address)
             };
+
             println!("Broadcasting to node {}: {}", node.id, url);
 
             match client.post(&url).json(transaction_data).send().await {
