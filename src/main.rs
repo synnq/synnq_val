@@ -34,14 +34,20 @@ async fn main() -> std::io::Result<()> {
     // Load the configuration (UUID and address)
     let config = Config::load(CONFIG_FILE).expect("Failed to create or fetch UUID and address");
 
-    // If the address is not an IP, resolve it.
-    if config.address.parse::<SocketAddr>().is_err() {
+    // If the address is not an IP:Port, resolve it using the resolve_address function.
+    let server_address = if let Ok(socket_addr) = config.address.parse::<SocketAddr>() {
+        socket_addr
+    } else {
+        // Attempt to resolve the address
         if let Err(e) = resolve_address(&config.address).await {
             eprintln!("Failed to resolve node address: {}", e);
             return Err(std::io::Error::new(std::io::ErrorKind::Other, e));
         }
-    }
+        // After resolution, fallback to a default socket address if needed
+        "127.0.0.1:8080".parse().expect("Failed to parse fallback address")
+    };
 
+    // Fetch and update nodes from the discovery service
     let node_info = fetch_and_update_nodes(NODE_INFO_FILE).await.unwrap_or_else(|_| NodeInfo {
         nodes: vec![],
     });
@@ -86,16 +92,13 @@ async fn main() -> std::io::Result<()> {
         }
     });
 
+    // Bind and run the server using the resolved or fallback address
     HttpServer::new(move || {
         App::new()
             .app_data(web::Data::new(Arc::clone(&node_list)))
             .app_data(web::Data::new(Arc::clone(&storage)))
             .configure(network::api::init_routes)
     })
-        .bind(
-            config.address
-                .parse::<SocketAddr>()
-                .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, e))?
-        )?
+        .bind(server_address)?
         .run().await
 }
