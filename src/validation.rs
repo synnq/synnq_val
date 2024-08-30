@@ -1,4 +1,4 @@
-use crate::node::Node;
+use crate::node::node::Node;
 use serde::{ Deserialize, Serialize };
 use serde_json::{ Value, from_value };
 
@@ -34,27 +34,60 @@ pub struct Meta {
 }
 
 pub async fn validate_data(_node: &Node, data: &Value) -> bool {
+    println!("Validating data: {:#?}", data);
+
     match from_value::<TransactionData>(data.clone()) {
         Ok(transaction) => {
-            if transaction.transaction_type.is_empty() {
-                eprintln!("Transaction type is empty");
-                return false;
-            }
+            // if transaction.transaction_type.is_empty() {
+            //     println!("Validation failed: Transaction type is empty");
+            //     return false;
+            // }
 
-            if transaction.sender.is_empty() || transaction.receiver.is_empty() {
-                eprintln!("Sender or receiver address is empty");
-                return false;
-            }
+            // if transaction.sender.is_empty() {
+            //     println!("Validation failed: Sender address is empty");
+            //     return false;
+            // }
 
-            if transaction.private_key.len() != 64 {
-                eprintln!("Invalid private key length");
-                return false;
-            }
+            // if transaction.receiver.is_empty() {
+            //     println!("Validation failed: Receiver address is empty");
+            //     return false;
+            // }
 
+            // if transaction.private_key.len() != 64 {
+            //     println!("Validation failed: Invalid private key length");
+            //     return false;
+            // }
+
+            // if transaction.amount == 0 {
+            //     println!("Validation failed: Transaction amount is zero");
+            //     return false;
+            // }
+
+            // if transaction.denom.is_empty() {
+            //     println!("Validation failed: Denomination is empty");
+            //     return false;
+            // }
+
+            // if transaction.fee == 0 {
+            //     println!("Validation failed: Transaction fee is zero");
+            //     return false;
+            // }
+
+            // if transaction.data.data.is_empty() {
+            //     println!("Validation failed: Data field is empty");
+            //     return false;
+            // }
+
+            // if transaction.metadata.meta.value.is_empty() {
+            //     println!("Validation failed: Metadata value is empty");
+            //     return false;
+            // }
+
+            println!("Validation succeeded");
             true
         }
         Err(e) => {
-            eprintln!("Failed to deserialize data: {}", e);
+            println!("Failed to deserialize data: {}", e);
             false
         }
     }

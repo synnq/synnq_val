@@ -1,14 +1,14 @@
 use actix_web::{ web, Responder, post, get, HttpResponse, Error };
 use serde::{ Deserialize, Serialize };
 use serde_json::Value;
-use crate::{ node::{ Node, NodeList }, consensus::handle_validation, storage::Storage };
+use crate::{ node::node::{ Node, NodeList }, consensus::handle_validation, storage::Storage };
 use crate::validation::validate_data;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
 #[derive(Deserialize, Serialize, Clone, Debug)]
 pub struct Data {
-    pub secret: u64,
+    pub secret: String,
     pub proof: Vec<u8>,
     pub blinding: String,
     pub data: Value,

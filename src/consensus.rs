@@ -1,12 +1,12 @@
-use crate::{ node::NodeList, validation::validate_data, storage::Storage };
-use crate::api::Data;
+use crate::{ node::node::NodeList, validation::validate_data, storage::Storage };
+use crate::network::api::Data;
 use actix_web::{ web, HttpResponse, Error };
 use reqwest::Client;
 use serde::Deserialize;
 use anyhow::{ anyhow, Result };
 use futures::future::join_all;
 use tokio::time::{ timeout, Duration };
-use crate::node::Node;
+use crate::node::node::Node;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio::time::sleep;
@@ -103,13 +103,16 @@ async fn send_to_api(data: Data) -> bool {
     let mut delay = Duration::from_secs(1);
 
     while attempts > 0 {
-        let response = client.post("https://zkp.synnq.io/verify").json(&data).send().await;
+        let response = client.post("https://zkp.synnq.io/verify").json(&data.data).send().await;
 
         match response {
             Ok(res) => {
                 if res.status().is_success() {
                     println!("Data validation successful on external API");
                     return true;
+                } else if res.status() == 422 {
+                    eprintln!("Unprocessable Entity: Check the request body for errors.");
+                    return false; // No need to retry if it's a 422 error
                 } else {
                     eprintln!("API returned error status: {}", res.status());
                     let error_body = res
@@ -161,11 +164,13 @@ pub async fn broadcast_to_nodes(
 
     let broadcast_results: Vec<_> = join_all(
         nodes.iter().map(|node| async {
-            // Construct the URL based on whether it's an IP address or a URL.
-            let url = if node.address.parse::<SocketAddr>().is_ok() {
-                format!("http://{}/receive_broadcast", node.address)
+            let url = if
+                node.address.starts_with("http://") ||
+                node.address.starts_with("https://")
+            {
+                node.address.clone()
             } else {
-                format!("{}/receive_broadcast", node.address)
+                format!("http://{}/receive_broadcast", node.address)
             };
             println!("Broadcasting to node {}: {}", node.id, url);
 
@@ -186,7 +191,6 @@ pub async fn broadcast_to_nodes(
         })
     ).await;
 
-    // Collect and log any errors from broadcasting
     for result in broadcast_results {
         if let Err(e) = result {
             eprintln!("Broadcast error: {}", e);
