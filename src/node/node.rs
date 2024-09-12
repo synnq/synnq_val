@@ -21,12 +21,14 @@ pub struct NodeList {
 }
 
 impl NodeList {
+    // Create a new NodeList with an empty HashMap
     pub fn new() -> Self {
         NodeList {
             nodes: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
+    // Create a NodeList from a Vec<Node>
     pub fn from_nodes(nodes: Vec<Node>) -> Self {
         let node_list = NodeList::new();
         for node in nodes {
@@ -35,20 +37,34 @@ impl NodeList {
         node_list
     }
 
+    // Add a new node to the NodeList
     pub fn add_node(&self, node: Node) {
         self.nodes.lock().unwrap().insert(node.id.clone(), node);
     }
 
+    // Retrieve all nodes as a Vec<Node>
     pub fn get_nodes(&self) -> Vec<Node> {
         self.nodes.lock().unwrap().values().cloned().collect()
     }
 
+    // Find a node by UUID
     pub fn find_node_by_uuid(&self, uuid: &str) -> Option<Node> {
         self.nodes.lock().unwrap().get(uuid).cloned()
+    }
+
+    // Remove a node by its UUID and return true if successful
+    pub fn remove_node_by_uuid(&self, uuid: &str) -> bool {
+        let mut nodes = self.nodes.lock().unwrap();
+        if nodes.remove(uuid).is_some() {
+            true
+        } else {
+            false
+        }
     }
 }
 
 impl Node {
+    // Create a new Node instance with a generated UUID and RSA key pair
     pub fn new(address: &str) -> Self {
         // Generate a unique ID for the node
         let id = Uuid::new_v4().to_string();

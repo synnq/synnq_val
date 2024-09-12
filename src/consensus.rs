@@ -10,6 +10,8 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio::time::sleep;
 use tracing::info;
+use crate::config::Config;
+use serde_json::{ json, Value };
 
 pub async fn handle_validation(
     data: Data,
@@ -134,8 +136,13 @@ async fn send_to_api(data: Data) -> bool {
     false
 }
 
-async fn send_transaction_data(transaction_data: &serde_json::Value) -> Result<String> {
+async fn send_transaction_data(transaction_data: &Value) -> Result<String> {
     let client = Client::new();
+
+    // Log the transaction_data to see its structure
+    println!("Received transaction_data: {:#?}", transaction_data);
+
+    // Step 1: Send the original transaction data
     let response = client
         .post("https://rest.synnq.io/transaction")
         .json(transaction_data)
@@ -144,12 +151,112 @@ async fn send_transaction_data(transaction_data: &serde_json::Value) -> Result<S
     let status = response.status();
     let body = response.text().await?;
 
-    if status.is_success() {
-        println!("Transaction data successfully sent to https://rest.synnq.io/transaction");
-        Ok(body)
-    } else {
+    if !status.is_success() {
         eprintln!("Failed to send transaction data. Status: {}", status);
-        Err(anyhow!("Failed to send transaction data. Status: {}. Body: {}", status, body))
+        return Err(anyhow!("Failed to send transaction data. Status: {}. Body: {}", status, body));
+    }
+
+    println!("Transaction data successfully sent to https://rest.synnq.io/transaction");
+
+    // Step 2: Extract fields from the transaction_data
+
+    // Extract fees
+    let fees_amount = transaction_data
+        .get("fee")
+        .ok_or_else(|| {
+            eprintln!("Missing 'fees' field in transaction_data");
+            anyhow!("Failed to extract fees from transaction data")
+        })?
+        .as_f64()
+        .ok_or_else(|| {
+            eprintln!("'fees' field is not a valid number");
+            anyhow!("Fees is not a valid number")
+        })?;
+
+    // Extract sender
+    let sender = transaction_data
+        .get("sender")
+        .ok_or_else(|| {
+            eprintln!("Missing 'sender' field in transaction_data");
+            anyhow!("Failed to extract sender from transaction data")
+        })?
+        .as_str()
+        .ok_or_else(|| {
+            eprintln!("'sender' field is not a valid string");
+            anyhow!("Sender is not a valid string")
+        })?;
+
+    // Extract private_key
+    let private_key = transaction_data
+        .get("private_key")
+        .ok_or_else(|| {
+            eprintln!("Missing 'private_key' field in transaction_data");
+            anyhow!("Failed to extract private key from transaction data")
+        })?
+        .as_str()
+        .ok_or_else(|| {
+            eprintln!("'private_key' field is not a valid string");
+            anyhow!("Private key is not a valid string")
+        })?;
+
+    // Extract denom
+    let denom = transaction_data
+        .get("denom")
+        .ok_or_else(|| {
+            eprintln!("Missing 'denom' field in transaction_data");
+            anyhow!("Failed to extract denom from transaction data")
+        })?
+        .as_str()
+        .ok_or_else(|| {
+            eprintln!("'denom' field is not a valid string");
+            anyhow!("Denom is not a valid string")
+        })?;
+
+    // Step 3: Load wallet address from the config
+    let config = Config::load("config.json")?;
+    let wallet_address = config.wallet_address.ok_or_else(|| {
+        eprintln!("Wallet address is not set in the configuration file");
+        anyhow!("Wallet address is not set in the configuration file")
+    })?;
+
+    // Step 4: Create the request body for the fee transaction
+    let fee_transaction_request =
+        json!({
+        "transaction_type": "payment",
+        "sender": sender,  // Sender from the original transaction
+        "private_key": private_key,  // Private key from the original transaction
+        "receiver": wallet_address,  // Wallet address from config
+        "amount": fees_amount,  // Fees extracted from the original transaction
+        "fee": 0,
+        "denom": denom,  // Denomination of the currency
+        "flags": 1,  // Flags is set to 1
+        "data_type": "fees",  // Data type set to "fees"
+        "data": {
+            "value": ""  // Optional data, modify if needed
+        },
+        "metadata": {
+            "meta": {
+                "value": ""  // Optional metadata, modify if needed
+            }
+        },
+        "model_type": "default_model"  // Model type
+    });
+
+    // Step 5: Send the new fee transaction
+    let fee_response = client
+        .post("https://rest.synnq.io/transaction")
+        .json(&fee_transaction_request)
+        .send().await?;
+
+    let fee_status = fee_response.status();
+    let fee_body = fee_response.text().await?;
+    println!("{:?}", fee_body);
+    if fee_status.is_success() {
+        println!("Fee transaction successfully sent to wallet: {}", wallet_address);
+        Ok(fee_body)
+    } else {
+        eprintln!("Failed to send fee transaction. Status: {}", fee_status);
+        Err(anyhow!("Failed to send fee transaction. Status: {}. Body: {}", fee_status, fee_body))
     }
 }
 

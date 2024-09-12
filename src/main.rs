@@ -21,6 +21,9 @@ use crate::init::{
 };
 use crate::storage::Storage;
 use tracing::info;
+use reqwest::Client;
+use anyhow::Result;
+use serde_json::json;
 
 const NODE_INFO_FILE: &str = "node_info.json";
 const CONFIG_FILE: &str = "config.json";
@@ -32,7 +35,28 @@ async fn main() -> std::io::Result<()> {
     info!("Starting application...");
 
     // Load the configuration (UUID and address)
-    let config = Config::load(CONFIG_FILE).expect("Failed to create or fetch UUID and address");
+    let mut config = Config::load(CONFIG_FILE).expect("Failed to create or fetch UUID and address");
+
+    // Check if the wallet address is missing
+    if config.wallet_address.is_none() {
+        // Prompt the user for a wallet address
+        match Config::prompt_for_wallet_address() {
+            Ok(wallet_address) => {
+                // Save the wallet address in the config
+                config.wallet_address = Some(wallet_address);
+                config.save(CONFIG_FILE).expect("Failed to save the config with wallet address.");
+            }
+            Err(e) => {
+                eprintln!("Error getting wallet address: {}", e);
+                return Err(
+                    std::io::Error::new(std::io::ErrorKind::Other, "Failed to get wallet address")
+                );
+            }
+        }
+    }
+
+    // Proceed with the rest of the logic using the wallet address
+    let wallet_address = config.wallet_address.as_ref().unwrap();
 
     // If the address is not an IP:Port, resolve it using the resolve_address function.
     let server_address = if let Ok(socket_addr) = config.address.parse::<SocketAddr>() {
@@ -76,6 +100,9 @@ async fn main() -> std::io::Result<()> {
     let storage = Arc::new(Mutex::new(Storage::new("database/db")));
 
     let node_list_clone = Arc::clone(&node_list);
+    let client = Client::new(); // Create a reqwest client for making HTTP requests
+
+    // Task to update node list periodically
     tokio::spawn(async move {
         loop {
             match fetch_and_update_nodes(NODE_INFO_FILE).await {
@@ -92,6 +119,14 @@ async fn main() -> std::io::Result<()> {
         }
     });
 
+    // Task to check node availability and remove unreachable nodes after 3 failed cycles
+    let node_list_clone_for_check = Arc::clone(&node_list);
+    tokio::spawn(async move {
+        if let Err(e) = check_and_remove_unavailable_nodes(node_list_clone_for_check, client).await {
+            tracing::error!("Error checking and removing nodes: {}", e);
+        }
+    });
+
     // Bind and run the server using the resolved or fallback address
     HttpServer::new(move || {
         App::new()
@@ -101,4 +136,99 @@ async fn main() -> std::io::Result<()> {
     })
         .bind(server_address)?
         .run().await
+}
+
+// Check if nodes are available and remove them after 3 failed checks
+async fn check_and_remove_unavailable_nodes(
+    node_list: Arc<Mutex<NodeList>>,
+    client: Client
+) -> Result<()> {
+    let mut failed_attempts: Vec<(String, u8)> = Vec::new(); // Track failed attempts (UUID, failed count)
+
+    loop {
+        // Lock the node list to check availability
+        let nodes = {
+            let node_list_guard = node_list.lock().await;
+            node_list_guard.get_nodes().clone()
+        };
+
+        // Check each node's availability
+        for node in nodes {
+            let node_id = node.id.clone();
+            let node_available = check_node_availability(&node).await;
+
+            // If the node is unavailable
+            if !node_available {
+                // Find if the node is already being tracked for failed attempts
+                if let Some(entry) = failed_attempts.iter_mut().find(|(id, _)| id == &node_id) {
+                    entry.1 += 1; // Increment the failure count
+                } else {
+                    failed_attempts.push((node_id.clone(), 1)); // Start tracking this node
+                }
+
+                // If the node has failed 3 times, remove it
+                if
+                    let Some((_, _count)) = failed_attempts
+                        .iter()
+                        .find(|(id, count)| id == &node_id && *count >= 3)
+                {
+                    // Remove node and send delete request
+                    remove_node(&node_id, &node_list, &client).await?;
+                    info!("Node {} removed after 3 failed attempts", node_id);
+                }
+            } else {
+                // If node is available, reset the failure count
+                failed_attempts.retain(|(id, _)| id != &node_id);
+            }
+        }
+
+        // Sleep for 5 seconds before the next cycle
+        tokio::time::sleep(Duration::from_secs(5)).await;
+    }
+}
+
+// Check if the node is available by pinging or validating its availability (mock logic)
+async fn check_node_availability(node: &Node) -> bool {
+    // Replace this with the actual logic to check if a node is available
+    // For example, you can ping the node, send a request, etc.
+    println!("Checking availability for node: {}", node.id);
+    true // Mocking that the node is always available for now
+}
+
+// Remove the node from the NodeList and call the delete_node endpoint
+async fn remove_node(
+    node_id: &str,
+    node_list: &Arc<Mutex<NodeList>>,
+    client: &Client
+) -> Result<()> {
+    // Remove the node from the NodeList
+    let node_list_guard = node_list.lock().await; // Removed `mut` here
+    if node_list_guard.remove_node_by_uuid(node_id) {
+        info!("Node {} successfully removed from local node list", node_id);
+    } else {
+        eprintln!("Node {} not found in local node list", node_id);
+        return Err(anyhow::anyhow!("Node {} not found", node_id));
+    }
+
+    // Call the delete_node API
+    let delete_node_body = json!({ "id": node_id });
+    let response = client
+        .post("https://synnq-discovery-f77aaphiwa-uc.a.run.app/delete_node")
+        .json(&delete_node_body)
+        .send().await?;
+
+    if response.status().is_success() {
+        info!("Successfully removed node {} from the discovery service", node_id);
+    } else {
+        eprintln!(
+            "Failed to remove node {} from the discovery service. Status: {}",
+            node_id,
+            response.status()
+        );
+        return Err(
+            anyhow::anyhow!("Failed to remove node {}. Status: {}", node_id, response.status())
+        );
+    }
+
+    Ok(())
 }
