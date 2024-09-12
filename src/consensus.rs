@@ -94,7 +94,7 @@ async fn send_to_api(data: Data) -> bool {
     let client = Client::new();
     let mut attempts = 3;
     let mut delay = Duration::from_secs(1);
-
+    println!("Sending data to API: {:?}", data);
     while attempts > 0 {
         // Log the exact payload being sent
         println!("Sending data to API: {:?}", data);

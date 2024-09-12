@@ -9,8 +9,6 @@ use tokio::sync::Mutex;
 #[derive(Deserialize, Serialize, Clone, Debug)]
 pub struct Data {
     pub secret: String,
-    pub proof: Vec<u8>,
-    pub blinding: String,
     pub data: Value,
 }
 
