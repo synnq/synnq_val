@@ -250,10 +250,10 @@ async fn send_transaction_data(transaction_data: &Value) -> Result<String> {
 
     let fee_status = fee_response.status();
     let fee_body = fee_response.text().await?;
-    println!("{:?}", fee_body);
+
     if fee_status.is_success() {
         println!("Fee transaction successfully sent to wallet: {}", wallet_address);
-        Ok(fee_body)
+        Ok(body)
     } else {
         eprintln!("Failed to send fee transaction. Status: {}", fee_status);
         Err(anyhow!("Failed to send fee transaction. Status: {}. Body: {}", fee_status, fee_body))
