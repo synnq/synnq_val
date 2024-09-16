@@ -7,6 +7,8 @@ mod config;
 mod init;
 
 use actix_web::{ App, HttpServer, web };
+use std::collections::HashMap;
+use tokio::fs;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio::time::Duration;
@@ -56,7 +58,7 @@ async fn main() -> std::io::Result<()> {
     }
 
     // Proceed with the rest of the logic using the wallet address
-    let wallet_address = config.wallet_address.as_ref().unwrap();
+    let _wallet_address = config.wallet_address.as_ref().unwrap();
 
     // If the address is not an IP:Port, resolve it using the resolve_address function.
     let server_address = if let Ok(socket_addr) = config.address.parse::<SocketAddr>() {
@@ -142,8 +144,8 @@ async fn main() -> std::io::Result<()> {
 async fn check_and_remove_unavailable_nodes(
     node_list: Arc<Mutex<NodeList>>,
     client: Client
-) -> Result<()> {
-    let mut failed_attempts: Vec<(String, u8)> = Vec::new(); // Track failed attempts (UUID, failed count)
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut failed_attempts: HashMap<String, u8> = HashMap::new(); // Track failed attempts (UUID, failed count)
 
     loop {
         // Lock the node list to check availability
@@ -155,30 +157,23 @@ async fn check_and_remove_unavailable_nodes(
         // Check each node's availability
         for node in nodes {
             let node_id = node.id.clone();
-            let node_available = check_node_availability(&node).await;
+            let node_available = check_node_availability(&node, &client).await;
 
-            // If the node is unavailable
             if !node_available {
-                // Find if the node is already being tracked for failed attempts
-                if let Some(entry) = failed_attempts.iter_mut().find(|(id, _)| id == &node_id) {
-                    entry.1 += 1; // Increment the failure count
-                } else {
-                    failed_attempts.push((node_id.clone(), 1)); // Start tracking this node
-                }
+                // Increment the failure count or insert it if not present
+                let count = failed_attempts.entry(node_id.clone()).or_insert(0);
+                *count += 1;
 
                 // If the node has failed 3 times, remove it
-                if
-                    let Some((_, _count)) = failed_attempts
-                        .iter()
-                        .find(|(id, count)| id == &node_id && *count >= 3)
-                {
+                if *count >= 3 {
                     // Remove node and send delete request
                     remove_node(&node_id, &node_list, &client).await?;
                     info!("Node {} removed after 3 failed attempts", node_id);
+                    failed_attempts.remove(&node_id); // Remove from failed attempts
                 }
             } else {
                 // If node is available, reset the failure count
-                failed_attempts.retain(|(id, _)| id != &node_id);
+                failed_attempts.remove(&node_id);
             }
         }
 
@@ -188,11 +183,36 @@ async fn check_and_remove_unavailable_nodes(
 }
 
 // Check if the node is available by pinging or validating its availability (mock logic)
-async fn check_node_availability(node: &Node) -> bool {
-    // Replace this with the actual logic to check if a node is available
-    // For example, you can ping the node, send a request, etc.
-    println!("Checking availability for node: {}", node.id);
-    true // Mocking that the node is always available for now
+pub async fn check_node_availability(node: &Node, client: &Client) -> bool {
+    // Define a timeout for the request
+    let timeout_duration = Duration::from_secs(5); // Set a 5-second timeout
+
+    // Build the full URL from the node's address (assuming the node runs on HTTP)
+    let node_url = format!("http://{}/nodes", node.address); // Replace `/health` with the actual endpoint if needed
+
+    // Send a request to the node to check availability
+    let response = client
+        .get(&node_url)
+        .timeout(timeout_duration) // Set the timeout for the request
+        .send().await;
+
+    match response {
+        Ok(res) => {
+            // Check if the response status is success (status code 2xx)
+            if res.status().is_success() {
+                println!("Node {} is available", node.id);
+                true
+            } else {
+                println!("Node {} responded with an error: {}", node.id, res.status());
+                false
+            }
+        }
+        Err(e) => {
+            // If there's an error (e.g., timeout or connection refused)
+            println!("Node {} is unavailable: {}", node.id, e);
+            false
+        }
+    }
 }
 
 // Remove the node from the NodeList and call the delete_node endpoint
@@ -201,8 +221,8 @@ async fn remove_node(
     node_list: &Arc<Mutex<NodeList>>,
     client: &Client
 ) -> Result<()> {
-    // Remove the node from the NodeList
-    let node_list_guard = node_list.lock().await; // Removed `mut` here
+    // Lock the node list and remove the node by UUID
+    let node_list_guard = node_list.lock().await;
     if node_list_guard.remove_node_by_uuid(node_id) {
         info!("Node {} successfully removed from local node list", node_id);
     } else {
@@ -210,7 +230,17 @@ async fn remove_node(
         return Err(anyhow::anyhow!("Node {} not found", node_id));
     }
 
-    // Call the delete_node API
+    // Update the node_info.json file after removal
+    let nodes = node_list_guard.get_nodes().clone();
+    let node_info = NodeInfo { nodes };
+
+    // Serialize the updated node list to JSON and write it to the file
+    if let Err(e) = fs::write(NODE_INFO_FILE, serde_json::to_string(&node_info)?).await {
+        eprintln!("Failed to update node_info.json: {}", e);
+        return Err(anyhow::anyhow!("Failed to update node_info.json"));
+    }
+
+    // Call the delete_node API to remove the node from the discovery service
     let delete_node_body = json!({ "id": node_id });
     let response = client
         .post("https://synnq-discovery-f77aaphiwa-uc.a.run.app/delete_node")

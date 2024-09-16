@@ -1,4 +1,5 @@
 use actix_web::{ web, Responder, post, get, HttpResponse, Error };
+
 use serde::{ Deserialize, Serialize };
 use serde_json::Value;
 use crate::{ node::node::{ Node, NodeList }, consensus::handle_validation, storage::Storage };
@@ -80,6 +81,12 @@ async fn receive_broadcast(
     }
 
     HttpResponse::Ok().body("Broadcast received successfully")
+}
+
+#[derive(Deserialize, Serialize, Clone, Debug)]
+pub struct ProxyRequest {
+    pub target_url: String,
+    pub data: Value,
 }
 
 pub fn init_routes(cfg: &mut web::ServiceConfig) {

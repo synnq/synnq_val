@@ -3,7 +3,6 @@ use serde::{ Deserialize, Serialize };
 use std::fs;
 use std::error::Error;
 use crate::node::node::Node;
-use tracing::info;
 use anyhow::{ anyhow, Result };
 
 const DISCOVERY_SERVICE_URL: &str = "https://synnq-discovery-f77aaphiwa-uc.a.run.app";
@@ -78,7 +77,6 @@ pub async fn register_with_discovery_service(
 ) -> Result<(), Box<dyn Error + Send + Sync>> {
     let client = Client::new();
     let discovery_service_url = format!("{}/register_node", DISCOVERY_SERVICE_URL);
-    info!("Registering node with address: {}", address);
 
     let request_body = RegisterNodeRequest {
         id: uuid,

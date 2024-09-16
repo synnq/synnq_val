@@ -1,4 +1,6 @@
 use crate::{ node::node::NodeList, validation::validate_data, storage::Storage };
+use futures::stream::{ FuturesUnordered, StreamExt };
+
 use crate::network::api::Data;
 use actix_web::{ web, HttpResponse, Error };
 use reqwest::Client;
@@ -9,7 +11,6 @@ use crate::node::node::Node;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio::time::sleep;
-use tracing::info;
 use crate::config::Config;
 use serde_json::{ json, Value };
 
@@ -29,7 +30,6 @@ pub async fn handle_validation(
     let validation_results: Vec<_> = join_all(
         nodes.iter().map(|node| async {
             let res = timeout(Duration::from_secs(5), validate_data(node, &data.data)).await;
-            info!("Validating data from node {}: {:#?}", node.id, res);
             match res {
                 Ok(true) => {
                     println!("Node {} successfully validated the data.", node.id);
@@ -260,11 +260,20 @@ async fn send_transaction_data(transaction_data: &Value) -> Result<String> {
     }
 }
 
-async fn broadcast_to_nodes(nodes: &[Node], transaction_data: &serde_json::Value) -> Result<()> {
-    let client = Client::new();
+async fn broadcast_to_nodes(nodes: &[Node], transaction_data: &Value) -> Result<()> {
+    let client = Client::builder()
+        .timeout(Duration::from_secs(5)) // Set a timeout for each request
+        .build()?;
 
-    let broadcast_results: Vec<_> = join_all(
-        nodes.iter().map(|node| async {
+    // Use `FuturesUnordered` for better concurrency and error handling
+    let mut broadcast_futures = FuturesUnordered::new();
+
+    for node in nodes {
+        let client = client.clone(); // Clone the client for each request
+        let transaction_data = transaction_data.clone(); // Clone the data for each request
+        let node = node.clone(); // Clone node information for use in async block
+
+        let future = async move {
             let url = if
                 node.address.starts_with("http://") ||
                 node.address.starts_with("https://")
@@ -276,13 +285,20 @@ async fn broadcast_to_nodes(nodes: &[Node], transaction_data: &serde_json::Value
 
             println!("Broadcasting to node {}: {}", node.id, url);
 
-            match client.post(&url).json(transaction_data).send().await {
+            match client.post(&url).json(&transaction_data).send().await {
                 Ok(res) if res.status().is_success() => {
                     println!("Broadcast to node {} succeeded.", node.id);
                     Ok(())
                 }
                 Ok(res) => {
-                    eprintln!("Failed to broadcast to node {}. Status: {}", node.id, res.status());
+                    let status = res.status();
+                    let body = res.text().await.unwrap_or_else(|_| "No body".to_string());
+                    eprintln!(
+                        "Failed to broadcast to node {}. Status: {}. Response: {}",
+                        node.id,
+                        status,
+                        body
+                    );
                     Err(anyhow!("Broadcast failed for node {}", node.id))
                 }
                 Err(err) => {
@@ -290,10 +306,13 @@ async fn broadcast_to_nodes(nodes: &[Node], transaction_data: &serde_json::Value
                     Err(anyhow!("Broadcast failed for node {}", node.id))
                 }
             }
-        })
-    ).await;
+        };
 
-    for result in broadcast_results {
+        broadcast_futures.push(future);
+    }
+
+    // Collect and handle results from broadcasting
+    while let Some(result) = broadcast_futures.next().await {
         if let Err(e) = result {
             eprintln!("Broadcast error: {}", e);
         }
