@@ -66,11 +66,11 @@ impl Config {
 
     /// Prompt the user for the node's address
     fn prompt_for_address() -> IoResult<String> {
-        println!("Enter the node's address (e.g., 127.0.0.1:8080): ");
-        let mut input_address = String::new();
-        io::stdin().read_line(&mut input_address)?;
-        Ok(input_address.trim().to_string())
-    }
+    println!("Enter the node's address (URL or IP:Port, e.g., 127.0.0.1:8080 or https://example.com): ");
+    let mut input_address = String::new();
+    io::stdin().read_line(&mut input_address)?;
+    Ok(input_address.trim().to_string())
+}
 
     /// Prompt the user for the wallet address
     pub fn prompt_for_wallet_address() -> IoResult<String> {

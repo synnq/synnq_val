@@ -1,7 +1,7 @@
 use actix_web::{ web, Responder, post, get, HttpResponse, Error };
 
 use serde::{ Deserialize, Serialize };
-use serde_json::Value;
+use serde_json::{Value,json};
 use crate::{ node::node::{ Node, NodeList }, consensus::handle_validation, storage::Storage };
 use crate::validation::validate_data;
 use std::sync::Arc;
@@ -18,6 +18,17 @@ pub struct RegisterNodeRequest {
     pub id: String,
     pub address: String,
     pub public_key: String,
+}
+
+#[derive(Deserialize, Serialize, Clone, Debug)]
+pub struct CreateWalletRequest {
+    pub prefix: String,
+}
+
+#[derive(Deserialize, Serialize, Clone, Debug)]
+pub struct ProxyRequest {
+    pub target_url: String,
+    pub data: Value,
 }
 
 #[post("/register_node")]
@@ -83,15 +94,47 @@ async fn receive_broadcast(
     HttpResponse::Ok().body("Broadcast received successfully")
 }
 
-#[derive(Deserialize, Serialize, Clone, Debug)]
-pub struct ProxyRequest {
-    pub target_url: String,
-    pub data: Value,
+#[post("/create_wallet")]
+async fn create_wallet(
+    req: web::Json<CreateWalletRequest>,
+) -> Result<HttpResponse, Error> {
+    let client = reqwest::Client::builder()
+        .build()
+        .map_err(|e| {
+            // Manually map the reqwest error to an actix error
+            actix_web::error::ErrorInternalServerError(format!("Client build error: {:?}", e))
+        })?;
+
+    let json = json!({
+        "prefix": req.prefix
+    });
+
+    let res = client
+        .post("https://rest.synnq.io/create_wallet")
+        .json(&json)
+        .send()
+        .await
+        .map_err(|e| {
+            // Manually map the reqwest error to an actix error
+            actix_web::error::ErrorInternalServerError(format!("Request error: {:?}", e))
+        })?;
+
+    let body = res
+        .text()
+        .await
+        .map_err(|e| {
+            // Manually map the reqwest error to an actix error
+            actix_web::error::ErrorInternalServerError(format!("Response error: {:?}", e))
+        })?;
+
+    Ok(HttpResponse::Ok().body(body))
 }
+
 
 pub fn init_routes(cfg: &mut web::ServiceConfig) {
     cfg.service(register_node);
     cfg.service(get_nodes);
     cfg.service(receive_data);
     cfg.service(receive_broadcast);
+    cfg.service(create_wallet);
 }

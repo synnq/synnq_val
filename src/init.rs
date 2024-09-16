@@ -4,6 +4,7 @@ use std::fs;
 use std::error::Error;
 use crate::node::node::Node;
 use anyhow::{ anyhow, Result };
+use std::io;
 
 const DISCOVERY_SERVICE_URL: &str = "https://synnq-discovery-f77aaphiwa-uc.a.run.app";
 
@@ -60,7 +61,7 @@ pub async fn fetch_and_update_nodes(
         let data = serde_json::to_string_pretty(&node_info)?;
         fs::write(node_info_file, data)?;
 
-        println!("Node information updated successfully.");
+        // println!("Node information updated successfully.");
         Ok(node_info)
     } else {
         eprintln!("Failed to fetch nodes from discovery service. Status: {}", response.status());
@@ -97,4 +98,31 @@ pub async fn register_with_discovery_service(
         eprintln!("API error body: {}", error_text);
         Err(anyhow!("API error: {}", status).into())
     }
+}
+
+
+/// Prompt the user for the node's address, allowing both URLs (with or without http/https) and IP:Port
+pub fn prompt_for_address() -> io::Result<String> {
+    println!("Enter the node's address (URL or IP:Port, e.g., 127.0.0.1:8080 or https://example.com): ");
+    let mut input_address = String::new();
+    io::stdin().read_line(&mut input_address)?;
+    let input_address = input_address.trim().to_string();
+
+    // Validate the input address
+    if validate_address(&input_address) {
+        Ok(input_address)
+    } else {
+        Err(io::Error::new(io::ErrorKind::InvalidInput, "Invalid address format"))
+    }
+}
+
+/// Validate if the address is in correct format (IP:Port or URL)
+pub fn validate_address(input: &str) -> bool {
+    let ip_port_regex = r"^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}:\d+$";
+    let url_regex = r"^(https?://)?[a-zA-Z0-9\.-]+\.[a-zA-Z]{2,}(:\d+)?$";
+
+    let is_ip_port = regex::Regex::new(ip_port_regex).unwrap().is_match(input);
+    let is_url = regex::Regex::new(url_regex).unwrap().is_match(input);
+
+    is_ip_port || is_url
 }

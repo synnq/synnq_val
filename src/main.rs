@@ -5,6 +5,7 @@ mod consensus;
 mod storage;
 mod config;
 mod init;
+mod keymanager;
 
 use actix_web::{ App, HttpServer, web };
 use std::collections::HashMap;
@@ -20,6 +21,7 @@ use crate::init::{
     resolve_address,
     fetch_and_update_nodes,
     register_with_discovery_service,
+    validate_address
 };
 use crate::storage::Storage;
 use tracing::info;
@@ -61,17 +63,31 @@ async fn main() -> std::io::Result<()> {
     let _wallet_address = config.wallet_address.as_ref().unwrap();
 
     // If the address is not an IP:Port, resolve it using the resolve_address function.
-    let server_address = if let Ok(socket_addr) = config.address.parse::<SocketAddr>() {
+let server_address = if validate_address(&config.address) {
+    if let Ok(socket_addr) = config.address.parse::<SocketAddr>() {
+        // If the address is in IP:Port format
         socket_addr
     } else {
+        // Handle URL and add http scheme if not present
+        let resolved_address = if config.address.starts_with("http://") || config.address.starts_with("https://") {
+            config.address.clone()
+        } else {
+            format!("http://{}", config.address) // Default to http if no scheme provided
+        };
+
         // Attempt to resolve the address
-        if let Err(e) = resolve_address(&config.address).await {
+        if let Err(e) = resolve_address(&resolved_address).await {
             eprintln!("Failed to resolve node address: {}", e);
             return Err(std::io::Error::new(std::io::ErrorKind::Other, e));
         }
+
         // After resolution, fallback to a default socket address if needed
         "127.0.0.1:8080".parse().expect("Failed to parse fallback address")
-    };
+    }
+} else {
+    eprintln!("Invalid address format: {}", config.address);
+    return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "Invalid address format"));
+};
 
     // Fetch and update nodes from the discovery service
     let node_info = fetch_and_update_nodes(NODE_INFO_FILE).await.unwrap_or_else(|_| NodeInfo {
@@ -200,7 +216,7 @@ pub async fn check_node_availability(node: &Node, client: &Client) -> bool {
         Ok(res) => {
             // Check if the response status is success (status code 2xx)
             if res.status().is_success() {
-                println!("Node {} is available", node.id);
+                // println!("Node {} is available", node.id);
                 true
             } else {
                 println!("Node {} responded with an error: {}", node.id, res.status());
